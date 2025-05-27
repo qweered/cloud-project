@@ -21,6 +21,34 @@ A microservices-based system for managing carpooling and shared rides.
 - Logging and metrics
 - In-memory caching
 
+## Architecture
+
+This section provides visual overviews of the system architecture, requirements, and design.
+
+### Functional Requirements
+
+The system supports core carpooling functionalities including user management, ride operations, and payment processing:
+
+![Functional Requirements](docs/diagrams/rendered/Functional%20Requirements.png)
+
+### Non-Functional Requirements
+
+The system is designed with scalability, security, and performance in mind:
+
+![Non-Functional Requirements](docs/diagrams/rendered/Non-Functional%20Requirements.png)
+
+### Services Communication
+
+The microservices communicate through REST APIs and message queues:
+
+![Services Communication](docs/diagrams/rendered/Services%20Communication.png)
+
+### Database Schema
+
+The system uses a relational database with the following schema design:
+
+![Database Schema](docs/diagrams/rendered/Database%20Schema.png)
+
 ## Project Structure
 
 - `/docs`: Project documentation and diagrams

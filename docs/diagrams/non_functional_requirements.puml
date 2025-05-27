@@ -11,49 +11,50 @@ skinparam rectangle {
 }
 
 package "Non-Functional Requirements" {
-  rectangle "Data Encryption" as NFR1 <<Security>> {
-    * Encryption of all PII data in databases
-    * Secure transmission of sensitive data
-    * Compliance with data protection regulations
-  }
-
-  rectangle "Performance Requirements" as NFR2 <<Performance>> {
-    * API response time < 500ms under normal load
-    * Match processing time < 5 seconds
-    * Support for 1000+ concurrent users
-    * In-memory caching for frequent queries
-  }
-
-  rectangle "Reliability & Availability" as NFR3 <<Reliability>> {
-    * System uptime of 99.9%
-    * Graceful degradation under high load
-    * Automatic failover mechanisms
-    * Comprehensive error logging
-  }
-
-  rectangle "Usability & Accessibility" as NFR4 <<Usability>> {
-    * Intuitive, responsive UI
-    * Mobile-friendly design
-    * Compliance with WCAG 2.1 guidelines
-    * Multi-language support
-  }
-
-  rectangle "Scalability" as NFR5 <<Scalability>> {
-    * Horizontal scaling of services
-    * Database sharding capability
-    * Asynchronous message processing
-    * Load balancing across instances
-  }
+  rectangle "Security Requirements" as NFR1 <<Security>>
+  rectangle "Performance Requirements" as NFR2 <<Performance>>
+  rectangle "Reliability & Availability" as NFR3 <<Reliability>>
+  rectangle "Usability & Accessibility" as NFR4 <<Usability>>
+  rectangle "Scalability Requirements" as NFR5 <<Scalability>>
 }
 
-note bottom of NFR1
-  PII includes names, emails,
-  phone numbers, payment info
+note left of NFR1
+  **Data Encryption**
+  • Encryption of all PII data in databases
+  • Secure transmission of sensitive data
+  • Compliance with data protection regulations
 end note
 
-note bottom of NFR3
-  Monitoring and health checks
-  are implemented for all services
+note right of NFR2
+  **Performance Targets**
+  • API response time less than 500ms
+  • Match processing time less than 5 seconds
+  • Support for 1000+ concurrent users
+  • In-memory caching for frequent queries
+end note
+
+note left of NFR3
+  **Reliability Targets**
+  • System uptime of 99.9%
+  • Graceful degradation under high load
+  • Automatic failover mechanisms
+  • Comprehensive error logging
+end note
+
+note right of NFR4
+  **Usability Features**
+  • Intuitive, responsive UI
+  • Mobile-friendly design
+  • WCAG 2.1 compliance
+  • Multi-language support
+end note
+
+note left of NFR5
+  **Scalability Features**
+  • Horizontal scaling of services
+  • Database sharding capability
+  • Asynchronous message processing
+  • Load balancing across instances
 end note
 
 @enduml 

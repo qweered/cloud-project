@@ -67,7 +67,7 @@ jobs:
     name: Deploy Services
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test'
     
     steps:
     - name: Checkout repository
