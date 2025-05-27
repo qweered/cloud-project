@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  users-service:
+    build: 
+      context: ./services/users
+    ports:
+      - "8001:8000"
+    environment:
+      - DB_HOST=users-db
+      - DB_NAME=users_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - users-db
+      - rabbitmq
+    volumes:
+      - ./services/users:/app
+    networks:
+      - carpool-network
+
+  rides-service:
+    build:
+      context: ./services/rides
+    ports:
+      - "8002:8000"
+    environment:
+      - DB_HOST=rides-db
+      - DB_NAME=rides_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - rides-db
+      - rabbitmq
+    volumes:
+      - ./services/rides:/app
+    networks:
+      - carpool-network
+
+  matching-service:
+    build:
+      context: ./services/matching
+    ports:
+      - "8003:8000"
+    environment:
+      - USERS_SERVICE_URL=http://users-service:8000
+      - RIDES_SERVICE_URL=http://rides-service:8000
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - users-service
+      - rides-service
+      - rabbitmq
+    volumes:
+      - ./services/matching:/app
+    networks:
+      - carpool-network
+
+  payments-service:
+    build:
+      context: ./services/payments
+    ports:
+      - "8004:8000"
+    environment:
+      - DB_HOST=payments-db
+      - DB_NAME=payments_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - payments-db
+      - rabbitmq
+    volumes:
+      - ./services/payments:/app
+    networks:
+      - carpool-network
+
+  users-db:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=users_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - users-db-data:/var/lib/postgresql/data
+    networks:
+      - carpool-network
+
+  rides-db:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=rides_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - rides-db-data:/var/lib/postgresql/data
+    networks:
+      - carpool-network
+
+  payments-db:
+    image: postgres:14
+    environment:
+      - POSTGRES_DB=payments_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - payments-db-data:/var/lib/postgresql/data
+    networks:
+      - carpool-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - carpool-network
+
+networks:
+  carpool-network:
+    driver: bridge
+
+volumes:
+  users-db-data:
+  rides-db-data:
+  payments-db-data: 

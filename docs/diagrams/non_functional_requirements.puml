@@ -1,0 +1,59 @@
+@startuml Non-Functional Requirements
+
+title Carpooling and Shared Rides Management - Non-Functional Requirements
+
+skinparam rectangle {
+  BackgroundColor<<Security>> LightPink
+  BackgroundColor<<Performance>> LightBlue
+  BackgroundColor<<Reliability>> LightGreen
+  BackgroundColor<<Usability>> LightYellow
+  BackgroundColor<<Scalability>> LightCyan
+}
+
+package "Non-Functional Requirements" {
+  rectangle "Data Encryption" as NFR1 <<Security>> {
+    * Encryption of all PII data in databases
+    * Secure transmission of sensitive data
+    * Compliance with data protection regulations
+  }
+
+  rectangle "Performance Requirements" as NFR2 <<Performance>> {
+    * API response time < 500ms under normal load
+    * Match processing time < 5 seconds
+    * Support for 1000+ concurrent users
+    * In-memory caching for frequent queries
+  }
+
+  rectangle "Reliability & Availability" as NFR3 <<Reliability>> {
+    * System uptime of 99.9%
+    * Graceful degradation under high load
+    * Automatic failover mechanisms
+    * Comprehensive error logging
+  }
+
+  rectangle "Usability & Accessibility" as NFR4 <<Usability>> {
+    * Intuitive, responsive UI
+    * Mobile-friendly design
+    * Compliance with WCAG 2.1 guidelines
+    * Multi-language support
+  }
+
+  rectangle "Scalability" as NFR5 <<Scalability>> {
+    * Horizontal scaling of services
+    * Database sharding capability
+    * Asynchronous message processing
+    * Load balancing across instances
+  }
+}
+
+note bottom of NFR1
+  PII includes names, emails,
+  phone numbers, payment info
+end note
+
+note bottom of NFR3
+  Monitoring and health checks
+  are implemented for all services
+end note
+
+@enduml 

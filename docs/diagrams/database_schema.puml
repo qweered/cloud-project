@@ -1,0 +1,129 @@
+@startuml Database Schema
+
+title Carpooling and Shared Rides Management - Database Schema
+
+!define TABLE_BORDER_COLOR #073B4C
+!define TABLE_HEADER_COLOR #118AB2
+!define TABLE_ROW_COLOR #FFFFFF
+!define ENCRYPTION_COLOR #FFB4A2
+
+' Users Database
+package "Users Database" {
+  class users {
+    + id: UUID <<PK>>
+    + username: VARCHAR(50)
+    + email: VARCHAR(100) <<encrypted>>
+    + password_hash: VARCHAR(255)
+    + phone_number: VARCHAR(20) <<encrypted>>
+    + created_at: TIMESTAMP
+    + updated_at: TIMESTAMP
+    # role: ENUM ['driver', 'passenger', 'admin']
+    .. Driver-specific fields ..
+    vehicle_model: VARCHAR(100)
+    license_plate: VARCHAR(20) <<encrypted>>
+    max_passengers: INTEGER
+  }
+
+  class user_preferences {
+    + id: UUID <<PK>>
+    + user_id: UUID <<FK>>
+    + smoking_allowed: BOOLEAN
+    + pets_allowed: BOOLEAN
+    + music_preference: VARCHAR(50)
+    + max_detour_minutes: INTEGER
+    + created_at: TIMESTAMP
+    + updated_at: TIMESTAMP
+  }
+
+  class user_ratings {
+    + id: UUID <<PK>>
+    + rater_id: UUID <<FK>>
+    + rated_id: UUID <<FK>>
+    + ride_id: UUID <<FK>>
+    + rating: DECIMAL(2,1)
+    + comment: TEXT
+    + created_at: TIMESTAMP
+  }
+
+  users ||--o{ user_preferences
+  users ||--o{ user_ratings
+}
+
+' Rides Database
+package "Rides Database" {
+  class rides {
+    + id: UUID <<PK>>
+    + driver_id: UUID <<FK>>
+    + status: ENUM ['scheduled', 'in_progress', 'completed', 'cancelled']
+    + origin_location: GEOGRAPHY(POINT) 
+    + destination_location: GEOGRAPHY(POINT)
+    + start_time: TIMESTAMP
+    + end_time: TIMESTAMP
+    + max_passengers: INTEGER
+    + current_passengers: INTEGER
+    + price_per_seat: DECIMAL(10,2)
+    + created_at: TIMESTAMP
+    + updated_at: TIMESTAMP
+  }
+
+  class ride_passengers {
+    + id: UUID <<PK>>
+    + ride_id: UUID <<FK>>
+    + passenger_id: UUID <<FK>>
+    + pickup_location: GEOGRAPHY(POINT)
+    + dropoff_location: GEOGRAPHY(POINT)
+    + status: ENUM ['requested', 'accepted', 'rejected', 'cancelled', 'completed']
+    + created_at: TIMESTAMP
+    + updated_at: TIMESTAMP
+  }
+
+  rides ||--o{ ride_passengers
+}
+
+' Payments Database
+package "Payments Database" {
+  class payments {
+    + id: UUID <<PK>>
+    + ride_id: UUID <<FK>>
+    + passenger_id: UUID <<FK>>
+    + driver_id: UUID <<FK>>
+    + amount: DECIMAL(10,2)
+    + status: ENUM ['pending', 'completed', 'refunded', 'failed']
+    + payment_method: VARCHAR(50) <<encrypted>>
+    + transaction_id: VARCHAR(100)
+    + created_at: TIMESTAMP
+    + updated_at: TIMESTAMP
+  }
+
+  class payment_methods {
+    + id: UUID <<PK>>
+    + user_id: UUID <<FK>>
+    + type: ENUM ['credit_card', 'debit_card', 'paypal']
+    + card_number: VARCHAR(255) <<encrypted>>
+    + card_holder: VARCHAR(100) <<encrypted>>
+    + expiry_date: VARCHAR(10) <<encrypted>>
+    + is_default: BOOLEAN
+    + created_at: TIMESTAMP
+    + updated_at: TIMESTAMP
+  }
+
+  payments ||--o{ payment_methods
+}
+
+' Database relationships across schemas
+rides }o--|| users
+ride_passengers }o--|| users
+payments }o--|| rides
+payments }o--|| users
+
+note top of users
+  PII data (email, phone, license_plate) 
+  is encrypted at rest
+end note
+
+note bottom of payments
+  Payment details are encrypted
+  and comply with PCI-DSS
+end note
+
+@enduml 

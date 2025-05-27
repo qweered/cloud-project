@@ -1,0 +1,63 @@
+@startuml Functional Requirements
+
+title Carpooling and Shared Rides Management - Functional Requirements
+
+' Use case diagram
+actor "Passenger" as passenger
+actor "Driver" as driver
+actor "Admin" as admin
+
+rectangle "Carpooling System" {
+  usecase "Register/Login" as UC1
+  usecase "Manage Profile" as UC2
+  usecase "Create Ride Request" as UC3
+  usecase "Offer Ride" as UC4
+  usecase "Match Rides" as UC5
+  usecase "Accept/Reject Ride" as UC6
+  usecase "Process Payment" as UC7
+  usecase "Rate Experience" as UC8
+  usecase "View Ride History" as UC9
+  usecase "System Monitoring" as UC10
+  usecase "Manage Users" as UC11
+}
+
+' User connections
+passenger --> UC1
+passenger --> UC2
+passenger --> UC3
+passenger --> UC6
+passenger --> UC7
+passenger --> UC8
+passenger --> UC9
+
+driver --> UC1
+driver --> UC2
+driver --> UC4
+driver --> UC6
+driver --> UC8
+driver --> UC9
+
+admin --> UC10
+admin --> UC11
+
+' System connections
+UC3 ..> UC5 : includes
+UC4 ..> UC5 : includes
+UC5 ..> UC6 : includes
+UC6 ..> UC7 : includes
+UC7 ..> UC8 : triggers
+
+note right of UC1
+  Users can register and log in
+  using email or social accounts
+end note
+
+note right of UC5
+  Matching algorithm considers:
+  - Location proximity
+  - Time constraints
+  - User ratings
+  - Vehicle capacity
+end note
+
+@enduml 

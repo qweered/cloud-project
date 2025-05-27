@@ -1,0 +1,96 @@
+@startuml Services Communication
+
+title Carpooling and Shared Rides Management - Services Communication
+
+!define RECTANGLE_COLOR #DDDDDD
+!define QUEUE_COLOR #FFFFCC
+!define DATABASE_COLOR #CCFFCC
+
+skinparam component {
+  BackgroundColor RECTANGLE_COLOR
+  BorderColor Black
+}
+
+skinparam database {
+  BackgroundColor DATABASE_COLOR
+}
+
+skinparam queue {
+  BackgroundColor QUEUE_COLOR
+}
+
+' Components
+component "Users Service" as UsersService
+component "Rides Service" as RidesService
+component "Matching Service" as MatchingService
+component "Payments Service" as PaymentsService
+
+' Databases
+database "Users DB" as UsersDB
+database "Rides DB" as RidesDB
+database "Payments DB" as PaymentsDB
+
+' Message Queues
+queue "User Events" as UserEvents
+queue "Ride Events" as RideEvents
+queue "Match Events" as MatchEvents
+queue "Payment Events" as PaymentEvents
+queue "Logging Queue" as LogQueue
+
+' Connections between services and databases
+UsersService --> UsersDB : CRUD operations
+RidesService --> RidesDB : CRUD operations
+PaymentsService --> PaymentsDB : CRUD operations
+
+' API connections (synchronous)
+UsersService <--> RidesService : REST API
+UsersService <--> PaymentsService : REST API
+RidesService <--> MatchingService : REST API
+MatchingService <--> PaymentsService : REST API
+
+' Message queue connections (asynchronous)
+UsersService --> UserEvents : publishes
+RidesService --> RideEvents : publishes
+MatchingService --> MatchEvents : publishes
+PaymentsService --> PaymentEvents : publishes
+
+UserEvents --> RidesService : subscribes
+UserEvents --> MatchingService : subscribes
+RideEvents --> MatchingService : subscribes
+RideEvents --> UsersService : subscribes
+MatchEvents --> RidesService : subscribes
+MatchEvents --> PaymentsService : subscribes
+PaymentEvents --> UsersService : subscribes
+PaymentEvents --> RidesService : subscribes
+
+' Logging
+UsersService --> LogQueue : logs
+RidesService --> LogQueue : logs
+MatchingService --> LogQueue : logs
+PaymentsService --> LogQueue : logs
+
+note right of UsersService
+  Manages user profiles, 
+  authentication & authorization
+end note
+
+note right of MatchingService
+  Core algorithm for matching
+  passengers with drivers
+end note
+
+note right of UserEvents
+  Messages include:
+  - User registered
+  - Profile updated
+  - User deleted
+end note
+
+note right of RideEvents
+  Messages include:
+  - Ride created
+  - Ride status updated
+  - Ride completed
+end note
+
+@enduml 
