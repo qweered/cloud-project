@@ -66,4 +66,5 @@ logs/
 # Temporary files
 *.tmp
 *.temp
-.cache/ setup-github-secrets.md
+.cache/
+setup-github-secrets.md

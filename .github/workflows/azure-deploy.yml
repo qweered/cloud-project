@@ -2,9 +2,9 @@ name: Deploy to Azure
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, test ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, test ]
 
 env:
   RESOURCE_GROUP: rg-carpool-app
