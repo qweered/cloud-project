@@ -106,14 +106,6 @@ jobs:
             "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
           }
 
-    - name: Register Azure Providers
-      run: |
-        echo "Registering required Azure providers..."
-        az provider register --namespace Microsoft.ContainerInstance --wait
-        az provider register --namespace Microsoft.Network --wait
-        az provider register --namespace Microsoft.Storage --wait
-        echo "Provider registration completed"
-
     - name: Deploy RabbitMQ Container
       run: |
         az container create \
