@@ -70,8 +70,8 @@ async def create_ride(ride: RideCreate):
     rides_db[ride_id] = ride_dict
     
     # Increment metrics
-    ride_creation_counter.increment()
-    active_rides_gauge.increment()
+    ride_creation_counter.inc()
+    active_rides_gauge.inc()
     
     return ride_dict
 
@@ -128,11 +128,11 @@ async def update_ride(ride_id: int, ride_update: RideUpdate):
     # Update metrics based on status changes
     if "status" in update_data:
         if update_data["status"] == RideStatus.COMPLETED:
-            ride_completion_counter.increment()
-            active_rides_gauge.decrement()
+            ride_completion_counter.inc()
+            active_rides_gauge.dec()
         elif update_data["status"] == RideStatus.CANCELLED:
-            ride_cancellation_counter.increment()
-            active_rides_gauge.decrement()
+            ride_cancellation_counter.inc()
+            active_rides_gauge.dec()
     
     return ride
 
@@ -175,7 +175,7 @@ async def request_ride(ride_id: int, passenger_ride: PassengerRideCreate):
     passenger_rides_db[passenger_ride_id] = passenger_ride_dict
     
     # Increment metrics
-    passenger_request_counter.increment()
+    passenger_request_counter.inc()
     
     return passenger_ride_dict
 

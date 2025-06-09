@@ -84,8 +84,8 @@ async def match_ride(request: RideRequest):
     based on location, timing, and other preferences.
     """
     # Increment metrics
-    match_request_counter.increment()
-    active_ride_requests_gauge.increment()
+    match_request_counter.inc()
+    active_ride_requests_gauge.inc()
     
     try:
         # Simulate matching algorithm execution time
@@ -95,17 +95,17 @@ async def match_ride(request: RideRequest):
         match_success = random.random() > 0.2  # 80% success rate
         
         if not match_success:
-            failed_matches_counter.increment()
-            active_ride_requests_gauge.decrement()
+            failed_matches_counter.inc()
+            active_ride_requests_gauge.dec()
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No suitable drivers found for your request. Please try again later."
             )
         
         # Update metrics for successful match
-        successful_matches_counter.increment()
-        active_ride_requests_gauge.decrement()
-        available_drivers_gauge.decrement()
+        successful_matches_counter.inc()
+        active_ride_requests_gauge.dec()
+        available_drivers_gauge.dec()
         
         # Return simulated match details
         return {
@@ -118,8 +118,8 @@ async def match_ride(request: RideRequest):
         }
     except Exception as e:
         # Ensure metrics are updated even if an error occurs
-        active_ride_requests_gauge.decrement()
-        failed_matches_counter.increment()
+        active_ride_requests_gauge.dec()
+        failed_matches_counter.inc()
         raise e
 
 

@@ -74,8 +74,8 @@ async def create_payment(payment: PaymentCreate):
     payments_db[payment_id] = payment_dict
     
     # Increment metrics
-    payment_creation_counter.increment()
-    active_payments_gauge.increment()
+    payment_creation_counter.inc()
+    active_payments_gauge.inc()
     
     return payment_dict
 
@@ -116,14 +116,14 @@ async def update_payment(payment_id: int, payment_update: PaymentUpdate):
     # Update metrics based on status changes
     if "status" in update_data:
         if payment["status"] == PaymentStatus.PENDING:
-            active_payments_gauge.decrement()
+            active_payments_gauge.dec()
             
         if update_data["status"] == PaymentStatus.COMPLETED:
-            payment_completion_counter.increment()
+            payment_completion_counter.inc()
         elif update_data["status"] == PaymentStatus.REFUNDED:
-            payment_refund_counter.increment()
+            payment_refund_counter.inc()
         elif update_data["status"] == PaymentStatus.FAILED:
-            payment_failure_counter.increment()
+            payment_failure_counter.inc()
     
     return payment
 
@@ -178,7 +178,7 @@ async def create_payment_method(payment_method: PaymentMethodCreate):
     payment_methods_db[payment_method_id] = method_dict
     
     # Increment metrics
-    payment_method_counter.increment()
+    payment_method_counter.inc()
     
     return method_dict
 

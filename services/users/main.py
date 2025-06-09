@@ -63,7 +63,7 @@ async def create_user(user: UserCreate):
     users_db[user.email] = user_dict
     
     # Increment metrics
-    user_creation_counter.increment()
+    user_creation_counter.inc()
     
     return user_dict
 
