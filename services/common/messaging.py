@@ -18,6 +18,8 @@ class MessageBroker:
     def __init__(self, host: str = None, port: int = 5672, max_retries: int = 10):
         self.host = host or os.getenv('RABBITMQ_HOST', 'localhost')
         self.port = port
+        self.username = os.getenv('RABBITMQ_USER', 'admin')
+        self.password = os.getenv('RABBITMQ_PASSWORD', 'admin123')
         self.max_retries = max_retries
         self.connection = None
         self.channel = None
@@ -31,9 +33,13 @@ class MessageBroker:
         """Establish connection to RabbitMQ with retry logic"""
         for attempt in range(self.max_retries):
             try:
-                self.connection = pika.BlockingConnection(
-                    pika.ConnectionParameters(host=self.host, port=self.port)
+                credentials = pika.PlainCredentials(self.username, self.password)
+                parameters = pika.ConnectionParameters(
+                    host=self.host, 
+                    port=self.port,
+                    credentials=credentials
                 )
+                self.connection = pika.BlockingConnection(parameters)
                 self.channel = self.connection.channel()
                 logging.info(f"Connected to RabbitMQ at {self.host}:{self.port} on attempt {attempt + 1}")
                 return

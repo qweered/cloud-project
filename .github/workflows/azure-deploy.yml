@@ -322,7 +322,9 @@ jobs:
                 DB_NAME=${service_name/-service/}_db \
                 DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
                 DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
-                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io \
+                RABBITMQ_USER=admin \
+                RABBITMQ_PASSWORD=admin123; then
               echo "✅ Successfully deployed $service_name"
               break
             else
@@ -373,7 +375,9 @@ jobs:
                 DB_NAME=${service_name/-service/}_db \
                 DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
                 DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
-                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io \
+                RABBITMQ_USER=admin \
+                RABBITMQ_PASSWORD=admin123; then
               echo "✅ Successfully deployed $service_name"
               break
             else
@@ -424,7 +428,9 @@ jobs:
                 DB_NAME=${service_name/-service/}_db \
                 DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
                 DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
-                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io \
+                RABBITMQ_USER=admin \
+                RABBITMQ_PASSWORD=admin123; then
               echo "✅ Successfully deployed $service_name"
               break
             else
@@ -478,7 +484,9 @@ jobs:
               --environment-variables \
                 USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
                 RIDES_SERVICE_URL=http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
-                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io \
+                RABBITMQ_USER=admin \
+                RABBITMQ_PASSWORD=admin123; then
               echo "✅ Successfully deployed $service_name"
               break
             else
