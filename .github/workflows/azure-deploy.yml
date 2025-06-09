@@ -9,15 +9,53 @@ on:
 env:
   RESOURCE_GROUP: rg-carpool-app
   LOCATION: eastus
-  REGISTRY: ghcr.io
+  ACR_NAME: carpoolacr
+  REGISTRY: carpoolacr.azurecr.io
 
 jobs:
-  build-and-push:
-    name: Build and Push to GHCR
+  setup-acr:
+    name: Setup Azure Container Registry
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: |
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+          }
+    
+    - name: Create Azure Container Registry
+      run: |
+        # Create ACR if it doesn't exist
+        if ! az acr show --name ${{ env.ACR_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} 2>/dev/null; then
+          echo "Creating Azure Container Registry..."
+          az acr create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.ACR_NAME }} \
+            --sku Basic \
+            --admin-enabled true
+        else
+          echo "ACR already exists"
+        fi
+    
+    - name: Import base images to ACR
+      run: |
+        echo "Importing base images to ACR..."
+        # Import RabbitMQ image
+        az acr import \
+          --name ${{ env.ACR_NAME }} \
+          --source docker.io/rabbitmq:3-management \
+          --image rabbitmq:3-management \
+          --force || echo "RabbitMQ import failed, will retry later"
+
+  build-and-push:
+    name: Build and Push to ACR
+    needs: setup-acr
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         service: [users, rides, matching, payments]
@@ -29,12 +67,20 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
-    - name: Log in to GitHub Container Registry
-      uses: docker/login-action@v3
+    - name: Azure Login
+      uses: azure/login@v1
       with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        creds: |
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+          }
+    
+    - name: Login to Azure Container Registry
+      run: |
+        az acr login --name ${{ env.ACR_NAME }}
     
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -42,8 +88,8 @@ jobs:
         context: ./services/${{ matrix.service }}
         push: true
         tags: |
-          ghcr.io/${{ github.repository }}/carpool-${{ matrix.service }}:${{ github.sha }}
-          ghcr.io/${{ github.repository }}/carpool-${{ matrix.service }}:latest
+          ${{ env.REGISTRY }}/carpool-${{ matrix.service }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/carpool-${{ matrix.service }}:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -87,7 +133,7 @@ jobs:
 
   deploy:
     name: Deploy to Azure
-    needs: [build-and-push, test]
+    needs: [setup-acr, build-and-push, test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test'
     
@@ -108,39 +154,34 @@ jobs:
 
     - name: Deploy RabbitMQ Container
       run: |
-        # Retry logic for Docker registry issues
-        for i in {1..3}; do
-          echo "Attempting RabbitMQ deployment (attempt $i/3)..."
-          if az container create \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --name rabbitmq \
-            --image rabbitmq:3-management \
-            --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
-            --ports 5672 15672 \
-            --location ${{ env.LOCATION }} \
-            --os-type Linux \
-            --cpu 1 \
-            --memory 1.5 \
-            --restart-policy Always \
-            --environment-variables \
-              RABBITMQ_DEFAULT_USER=admin \
-              RABBITMQ_DEFAULT_PASS=admin123; then
-            echo "RabbitMQ deployed successfully!"
-            break
-          else
-            echo "Attempt $i failed, waiting 30 seconds before retry..."
-            if [ $i -lt 3 ]; then
-              sleep 30
-            fi
-          fi
-        done
+        # Login to ACR for deployment
+        az acr login --name ${{ env.ACR_NAME }}
+        
+        # Deploy RabbitMQ from ACR
+        az container create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name rabbitmq \
+          --image ${{ env.REGISTRY }}/rabbitmq:3-management \
+          --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
+          --ports 5672 15672 \
+          --location ${{ env.LOCATION }} \
+          --os-type Linux \
+          --cpu 1 \
+          --memory 1.5 \
+          --restart-policy Always \
+          --registry-login-server ${{ env.REGISTRY }} \
+          --registry-username ${{ env.ACR_NAME }} \
+          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
+          --environment-variables \
+            RABBITMQ_DEFAULT_USER=admin \
+            RABBITMQ_DEFAULT_PASS=admin123
 
     - name: Deploy Users Service
       run: |
         az container create \
           --resource-group ${{ env.RESOURCE_GROUP }} \
           --name users-service \
-          --image ghcr.io/${{ github.repository }}/carpool-users:${{ github.sha }} \
+          --image ${{ env.REGISTRY }}/carpool-users:${{ github.sha }} \
           --dns-name-label carpool-users-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
@@ -148,6 +189,9 @@ jobs:
           --cpu 0.5 \
           --memory 1 \
           --restart-policy Always \
+          --registry-login-server ${{ env.REGISTRY }} \
+          --registry-username ${{ env.ACR_NAME }} \
+          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
             DB_NAME=users_db \
@@ -160,7 +204,7 @@ jobs:
         az container create \
           --resource-group ${{ env.RESOURCE_GROUP }} \
           --name rides-service \
-          --image ghcr.io/${{ github.repository }}/carpool-rides:${{ github.sha }} \
+          --image ${{ env.REGISTRY }}/carpool-rides:${{ github.sha }} \
           --dns-name-label carpool-rides-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
@@ -168,6 +212,9 @@ jobs:
           --cpu 0.5 \
           --memory 1 \
           --restart-policy Always \
+          --registry-login-server ${{ env.REGISTRY }} \
+          --registry-username ${{ env.ACR_NAME }} \
+          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
             DB_NAME=rides_db \
@@ -180,7 +227,7 @@ jobs:
         az container create \
           --resource-group ${{ env.RESOURCE_GROUP }} \
           --name payments-service \
-          --image ghcr.io/${{ github.repository }}/carpool-payments:${{ github.sha }} \
+          --image ${{ env.REGISTRY }}/carpool-payments:${{ github.sha }} \
           --dns-name-label carpool-payments-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
@@ -188,6 +235,9 @@ jobs:
           --cpu 0.5 \
           --memory 1 \
           --restart-policy Always \
+          --registry-login-server ${{ env.REGISTRY }} \
+          --registry-username ${{ env.ACR_NAME }} \
+          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
             DB_NAME=payments_db \
@@ -205,7 +255,7 @@ jobs:
         az container create \
           --resource-group ${{ env.RESOURCE_GROUP }} \
           --name matching-service \
-          --image ghcr.io/${{ github.repository }}/carpool-matching:${{ github.sha }} \
+          --image ${{ env.REGISTRY }}/carpool-matching:${{ github.sha }} \
           --dns-name-label carpool-matching-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
@@ -213,6 +263,9 @@ jobs:
           --cpu 0.5 \
           --memory 1 \
           --restart-policy Always \
+          --registry-login-server ${{ env.REGISTRY }} \
+          --registry-username ${{ env.ACR_NAME }} \
+          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
           --environment-variables \
             USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
             RIDES_SERVICE_URL=http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000 \

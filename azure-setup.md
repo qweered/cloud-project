@@ -5,7 +5,7 @@ This guide walks you through deploying your Carpool Microservices project to Azu
 ## Azure Infrastructure Overview
 
 We'll deploy the application using:
-- **GitHub Container Registry (GHCR)** - To store Docker images (free with GitHub)
+- **Azure Container Registry (ACR)** - To store Docker images (reliable and integrated)
 - **Azure Container Instances (ACI)** - To run the containers (alternative: Azure Container Apps)
 - **Azure Database for PostgreSQL** - Managed PostgreSQL databases
 - **Azure Service Bus** - For RabbitMQ messaging (alternative: self-hosted RabbitMQ)
@@ -29,9 +29,28 @@ az login
 az group create --name rg-carpool-app --location eastus
 ```
 
-### 1.2 GitHub Container Registry Setup
+### 1.2 Azure Container Registry Setup
 
-No additional setup needed! GitHub Container Registry (GHCR) is automatically available with your GitHub repository. The CI/CD pipeline will automatically push images to `ghcr.io/yourusername/yourrepo/carpool-servicename`.
+```bash
+# Create Azure Container Registry
+az acr create \
+  --resource-group rg-carpool-app \
+  --name carpoolacr \
+  --sku Basic \
+  --admin-enabled true
+
+# Import base images (RabbitMQ, etc.)
+az acr import \
+  --name carpoolacr \
+  --source docker.io/rabbitmq:3-management \
+  --image rabbitmq:3-management
+```
+
+**ACR Configuration:**
+- Name: `carpoolacr` (must be globally unique)
+- SKU: Basic (~$5/month)
+- Admin access: Enabled for CI/CD
+- Auto-imports: Base images like RabbitMQ
 
 ### 1.3 Create Azure Database for PostgreSQL Flexible Server
 
@@ -100,7 +119,7 @@ Configure the following secrets in your GitHub repository (Settings → Secrets 
 - `POSTGRES_ADMIN_USER` - PostgreSQL admin username
 - `POSTGRES_ADMIN_PASSWORD` - PostgreSQL admin password
 
-**Note**: No container registry secrets needed! GitHub Container Registry uses the built-in `GITHUB_TOKEN` automatically.
+**Note**: ACR credentials are automatically managed by the deployment pipeline.
 
 ### Creating Service Principal:
 
