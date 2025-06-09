@@ -27,8 +27,9 @@ for name, url in services.items():
 
 # Test 3: User creation and management
 print('\n👤 User Management:')
+import time
 user_data = {
-    'email': 'comprehensive-test@example.com',
+    'email': f'comprehensive-test-{int(time.time())}@example.com',
     'first_name': 'Comprehensive',
     'last_name': 'Test',
     'phone_number': '+1987654321',
