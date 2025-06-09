@@ -68,7 +68,7 @@ The system uses a relational database with the following schema design:
 The easiest way to run the entire system is with Docker Compose:
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 This will start all services and their dependencies.

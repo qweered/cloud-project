@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   users-service:
     build: 
@@ -17,6 +15,7 @@ services:
       - rabbitmq
     volumes:
       - ./services/users:/app
+      - ./services/common:/app/common
     networks:
       - carpool-network
 
@@ -36,6 +35,7 @@ services:
       - rabbitmq
     volumes:
       - ./services/rides:/app
+      - ./services/common:/app/common
     networks:
       - carpool-network
 
@@ -54,6 +54,7 @@ services:
       - rabbitmq
     volumes:
       - ./services/matching:/app
+      - ./services/common:/app/common
     networks:
       - carpool-network
 
@@ -73,6 +74,7 @@ services:
       - rabbitmq
     volumes:
       - ./services/payments:/app
+      - ./services/common:/app/common
     networks:
       - carpool-network
 

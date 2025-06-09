@@ -1,44 +1,61 @@
 """
-Base service module with common functionality for all microservices.
-Includes health and metrics endpoints.
+Base service class for all microservices
 """
 
-import os
-import time
-import socket
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from prometheus_client import generate_latest, Counter, Histogram, Gauge
+from typing import Optional
+import time
 
-from .metrics import MetricsRegistry
+
+class Metrics:
+    """Prometheus metrics collection"""
+    
+    def __init__(self, service_name: str):
+        self.service_name = service_name
+        self.request_count = Counter(
+            'http_requests_total',
+            'Total HTTP requests',
+            ['method', 'endpoint', 'status_code']
+        )
+        self.request_duration = Histogram(
+            'http_request_duration_seconds',
+            'HTTP request duration in seconds',
+            ['method', 'endpoint']
+        )
+        
+    def create_counter(self, name: str, description: str, labels: list = None):
+        """Create a new counter metric"""
+        return Counter(name, description, labels or [])
+    
+    def create_histogram(self, name: str, description: str, labels: list = None):
+        """Create a new histogram metric"""
+        return Histogram(name, description, labels or [])
+        
+    def create_gauge(self, name: str, description: str, labels: list = None):
+        """Create a new gauge metric"""
+        return Gauge(name, description, labels or [])
 
 
 class BaseService:
-    """Base class for all microservices with common functionality."""
-
-    def __init__(self, name: str, description: str):
-        """Initialize a new service with the given name and description."""
+    """Base class for all microservices"""
+    
+    def __init__(self, name: str, description: str, version: str = "1.0.0"):
         self.name = name
-        self.app = FastAPI(title=name, description=description)
-        self.metrics = MetricsRegistry(name.lower().replace('-', '_'))
-        self.start_time = time.time()
-        self.hostname = socket.gethostname()
+        self.description = description
+        self.version = version
         
-        # Register common metrics
-        self.request_counter = self.metrics.create_counter(
-            "requests_total", "Total number of requests received"
-        )
-        self.request_duration = self.metrics.create_histogram(
-            "request_duration_seconds", "Request duration in seconds"
-        )
-        self.error_counter = self.metrics.create_counter(
-            "errors_total", "Total number of errors"
-        )
-        self.active_requests = self.metrics.create_gauge(
-            "active_requests", "Number of active requests"
+        # Create FastAPI app
+        self.app = FastAPI(
+            title=name,
+            description=description,
+            version=version,
+            docs_url="/docs",
+            redoc_url="/redoc"
         )
         
-        # Configure CORS
+        # Add CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -47,59 +64,53 @@ class BaseService:
             allow_headers=["*"],
         )
         
-        # Register middleware
+        # Initialize metrics
+        self.metrics = Metrics(name)
+        
+        # Add middleware for metrics
         self.app.middleware("http")(self._metrics_middleware)
         
-        # Register common endpoints
-        self.register_common_endpoints()
-    
-    async def _metrics_middleware(self, request: Request, call_next):
-        """Middleware to collect request metrics."""
-        self.active_requests.increment()
-        self.request_counter.increment()
+        # Add health endpoints
+        self._add_health_endpoints()
         
+    async def _metrics_middleware(self, request: Request, call_next):
+        """Middleware to collect metrics"""
         start_time = time.time()
-        try:
-            response = await call_next(request)
-            return response
-        except Exception as e:
-            self.error_counter.increment()
-            raise e
-        finally:
-            process_time = time.time() - start_time
-            self.request_duration.observe(process_time)
-            self.active_requests.decrement()
+        
+        response = await call_next(request)
+        
+        # Record metrics
+        process_time = time.time() - start_time
+        self.metrics.request_duration.labels(
+            method=request.method,
+            endpoint=request.url.path
+        ).observe(process_time)
+        
+        self.metrics.request_count.labels(
+            method=request.method,
+            endpoint=request.url.path,
+            status_code=response.status_code
+        ).inc()
+        
+        return response
     
-    def register_common_endpoints(self):
-        """Register common endpoints for health and metrics."""
+    def _add_health_endpoints(self):
+        """Add standard health check endpoints"""
         
         @self.app.get("/health", tags=["Health"])
         async def health_check():
-            """Health check endpoint."""
-            uptime = time.time() - self.start_time
+            """Health check endpoint"""
             return {
-                "status": "ok",
+                "status": "healthy",
                 "service": self.name,
-                "uptime_seconds": uptime,
-                "hostname": self.hostname
+                "version": self.version
             }
         
-        @self.app.get("/ping", tags=["Health"])
-        async def ping():
-            """Simple ping endpoint."""
-            return {"pong": True}
-        
-        @self.app.get("/metrics", response_class=PlainTextResponse, tags=["Metrics"])
-        async def metrics():
-            """Prometheus-compatible metrics endpoint."""
-            return self.metrics.generate_metrics_text()
-        
-        @self.app.get("/info", tags=["Info"])
-        async def info():
-            """Service information endpoint."""
-            return {
-                "name": self.name,
-                "description": self.app.description,
-                "version": os.environ.get("SERVICE_VERSION", "0.1.0"),
-                "environment": os.environ.get("ENVIRONMENT", "development")
-            } 
+        @self.app.get("/metrics", tags=["Metrics"])
+        async def get_metrics():
+            """Prometheus metrics endpoint"""
+            from fastapi.responses import PlainTextResponse
+            return PlainTextResponse(
+                generate_latest(),
+                media_type="text/plain"
+            ) 
