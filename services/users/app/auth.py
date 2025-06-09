@@ -81,8 +81,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     # In a real app, fetch user from database
     # For this example, assume users_db is available in the module's namespace
     from main import users_db
+    from app.encryption import decrypt_user_pii
     
-    user = users_db.get(token_data.email)
+    # Find user by decrypting stored data
+    user = None
+    for encrypted_email, stored_user in users_db.items():
+        decrypted_user = decrypt_user_pii(stored_user)
+        if decrypted_user["email"] == token_data.email:
+            user = decrypted_user
+            break
+    
     if user is None:
         raise credentials_exception
     

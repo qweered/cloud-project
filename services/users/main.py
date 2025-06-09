@@ -21,6 +21,7 @@ from common.metrics import timing_metric
 from common.messaging import MessageBroker, EXCHANGES, ROUTING_KEYS, QUEUES
 from app.models import UserCreate, UserResponse, UserUpdate
 from app.auth import get_current_user, get_password_hash, verify_password, create_access_token, Token
+from app.encryption import encrypt_user_pii, decrypt_user_pii
 from app.graphql_schema import schema
 
 
@@ -132,11 +133,14 @@ users_db = {}
 @timing_metric(user_operations_duration)
 async def create_user(user: UserCreate):
     """Create a new user."""
-    if user.email in users_db:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+    # Check if email already exists by decrypting stored data
+    for encrypted_email, stored_user in users_db.items():
+        decrypted_user = decrypt_user_pii(stored_user)
+        if decrypted_user["email"] == user.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
     
     # Hash the password
     hashed_password = get_password_hash(user.password)
@@ -147,19 +151,29 @@ async def create_user(user: UserCreate):
     user_dict["hashed_password"] = hashed_password
     user_dict["id"] = len(users_db) + 1
     
-    # Store in mock DB
-    users_db[user.email] = user_dict
+    # Encrypt PII data before storing
+    encrypted_user_dict = encrypt_user_pii(user_dict)
+    
+    # Store in mock DB with encrypted email as key
+    users_db[encrypted_user_dict["email"]] = encrypted_user_dict
     
     # Increment metrics
     user_creation_counter.inc()
     
-    return user_dict
+    # Return decrypted user data for response
+    return decrypt_user_pii(encrypted_user_dict)
 
 
 @app.post("/token", response_model=Token, tags=["Authentication"])
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     """Authenticate user and return access token."""
-    user = users_db.get(form_data.username)
+    # Find user by encrypted email
+    user = None
+    for encrypted_email, stored_user in users_db.items():
+        decrypted_user = decrypt_user_pii(stored_user)
+        if decrypted_user["email"] == form_data.username:
+            user = stored_user
+            break
     
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         auth_failure_counter.inc()
@@ -170,7 +184,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         )
     
     user_auth_counter.inc()
-    access_token = create_access_token(data={"sub": user["email"]})
+    decrypted_user = decrypt_user_pii(user)
+    access_token = create_access_token(data={"sub": decrypted_user["email"]})
     
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -186,9 +201,9 @@ async def read_users_me(current_user=Depends(get_current_user)):
 @timing_metric(user_operations_duration)
 async def read_user(user_id: int, current_user=Depends(get_current_user)):
     """Get user by ID."""
-    for email, user in users_db.items():
+    for encrypted_email, user in users_db.items():
         if user["id"] == user_id:
-            return user
+            return decrypt_user_pii(user)
     
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -204,11 +219,18 @@ async def update_user(
 ):
     """Update current user details."""
     # Find and update user
-    for email, user in users_db.items():
+    for encrypted_email, user in users_db.items():
         if user["id"] == current_user["id"]:
+            # Decrypt, update, then re-encrypt
+            decrypted_user = decrypt_user_pii(user)
             update_data = user_update.model_dump(exclude_unset=True)
-            user.update(update_data)
-            return user
+            decrypted_user.update(update_data)
+            
+            # Re-encrypt and store
+            encrypted_user = encrypt_user_pii(decrypted_user)
+            users_db[encrypted_email] = encrypted_user
+            
+            return decrypted_user
     
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
