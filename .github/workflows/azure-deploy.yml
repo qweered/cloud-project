@@ -45,12 +45,21 @@ jobs:
     - name: Import base images to ACR
       run: |
         echo "Importing base images to ACR..."
-        # Import RabbitMQ image
-        az acr import \
+        # Try importing RabbitMQ from Microsoft Container Registry mirror first
+        if ! az acr import \
           --name ${{ env.ACR_NAME }} \
-          --source docker.io/rabbitmq:3-management \
+          --source mcr.microsoft.com/mirror/docker/library/rabbitmq:3-management \
           --image rabbitmq:3-management \
-          --force || echo "RabbitMQ import failed, will retry later"
+          --force; then
+          echo "Microsoft mirror import failed, trying Docker Hub..."
+          if ! az acr import \
+            --name ${{ env.ACR_NAME }} \
+            --source docker.io/rabbitmq:3-management \
+            --image rabbitmq:3-management \
+            --force; then
+            echo "ACR import failed, will use Docker Hub directly"
+          fi
+        fi
 
   build-and-push:
     name: Build and Push to ACR
@@ -157,11 +166,22 @@ jobs:
         # Login to ACR for deployment
         az acr login --name ${{ env.ACR_NAME }}
         
-        # Deploy RabbitMQ from ACR
+        # Check if RabbitMQ image exists in ACR
+        if az acr repository show --name ${{ env.ACR_NAME }} --repository rabbitmq >/dev/null 2>&1; then
+          echo "Using RabbitMQ from ACR"
+          RABBITMQ_IMAGE="${{ env.REGISTRY }}/rabbitmq:3-management"
+          REGISTRY_ARGS="--registry-login-server ${{ env.REGISTRY }} --registry-username ${{ env.ACR_NAME }} --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query 'passwords[0].value' -o tsv)"
+        else
+          echo "RabbitMQ not in ACR, using Microsoft Container Registry mirror"
+          RABBITMQ_IMAGE="mcr.microsoft.com/mirror/docker/library/rabbitmq:3-management"
+          REGISTRY_ARGS=""
+        fi
+        
+        # Deploy RabbitMQ
         az container create \
           --resource-group ${{ env.RESOURCE_GROUP }} \
           --name rabbitmq \
-          --image ${{ env.REGISTRY }}/rabbitmq:3-management \
+          --image "$RABBITMQ_IMAGE" \
           --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
           --ports 5672 15672 \
           --location ${{ env.LOCATION }} \
@@ -169,9 +189,7 @@ jobs:
           --cpu 1 \
           --memory 1.5 \
           --restart-policy Always \
-          --registry-login-server ${{ env.REGISTRY }} \
-          --registry-username ${{ env.ACR_NAME }} \
-          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
+          $REGISTRY_ARGS \
           --environment-variables \
             RABBITMQ_DEFAULT_USER=admin \
             RABBITMQ_DEFAULT_PASS=admin123
