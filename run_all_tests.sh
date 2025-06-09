@@ -96,11 +96,11 @@ docker compose up -d
 
 # Wait for services to be ready
 echo -e "\n${YELLOW}⏳ Waiting for services to be ready...${NC}"
-sleep 15
+sleep 10
 
 # Give additional time for database connections and message broker setup
 echo -e "   Ensuring database connections are established..."
-sleep 5
+sleep 3
 
 # Health check all services
 echo -e "\n${YELLOW}🩺 Performing health checks...${NC}"
@@ -154,8 +154,7 @@ echo -e "\n${YELLOW}🧪 Running Test Suite...${NC}"
 
 # 1. Users Service Tests
 echo -e "\n${BLUE}👤 USERS SERVICE TESTS${NC}"
-run_test "users-service" "tests/comprehensive_test.py" "Comprehensive Service Tests" "Integration Test"
-run_test "users-service" "tests/test_messaging.py" "RabbitMQ Messaging Tests" "Integration Test"
+run_unit_test "users-service" "tests.test_models" "User Models Unit Tests"
 
 # 2. Rides Service Tests  
 echo -e "\n${BLUE}🚗 RIDES SERVICE TESTS${NC}"
@@ -168,6 +167,42 @@ run_unit_test "payments-service" "tests.test_models" "Payment Models Unit Tests"
 # 4. Matching Service Tests
 echo -e "\n${BLUE}🔍 MATCHING SERVICE TESTS${NC}"
 run_test "matching-service" "tests/test_basic.py" "Basic API Tests" "Integration Test"
+
+# 5. Integration Tests (Cross-Service)
+echo -e "\n${BLUE}🔗 INTEGRATION TESTS${NC}"
+
+# Run integration tests in a container with network access to all services
+if docker run --rm --network cloud-project_carpool-network -v $(pwd):/workspace -w /workspace python:3.10-slim bash -c "
+apt-get update >/dev/null 2>&1 && 
+apt-get install -y curl >/dev/null 2>&1 &&
+pip install requests httpx strawberry-graphql >/dev/null 2>&1 &&
+cd tests/integration &&
+echo '🌐 Cross-Service Integration Tests' &&
+echo '==================================================' &&
+echo '' &&
+echo '🚀 Comprehensive Service Tests:' &&
+python comprehensive_test.py 2>&1 &&
+echo '' &&
+echo '📨 RabbitMQ Messaging Tests:' &&
+python test_messaging.py 2>&1 &&
+echo '' &&
+echo '🔗 GraphQL Integration Tests:' &&
+python test_graphql.py 2>&1
+" > /tmp/integration_test_output 2>&1; then
+    echo -e "   ${GREEN}✅ PASSED${NC}"
+    echo "   Key Results:"
+    grep -E "(✅|❌|Health|created|completed|available)" /tmp/integration_test_output | head -15 | sed 's/^/     /'
+    test_results+=("integration:Cross-Service Tests:PASSED")
+    passed_tests=$((passed_tests + 1))
+    total_tests=$((total_tests + 1))
+else
+    echo -e "   ${RED}❌ FAILED${NC}"
+    echo "   Error Output:"
+    tail -20 /tmp/integration_test_output | sed 's/^/     /'
+    test_results+=("integration:Cross-Service Tests:FAILED")
+    failed_tests=$((failed_tests + 1))
+    total_tests=$((total_tests + 1))
+fi
 
 # Generate Test Report
 echo -e "\n============================================================"

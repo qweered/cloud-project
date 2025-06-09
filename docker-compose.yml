@@ -11,8 +11,10 @@ services:
       - DB_PASSWORD=postgres
       - RABBITMQ_HOST=rabbitmq
     depends_on:
-      - users-db
-      - rabbitmq
+      users-db:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - ./services/users:/app
       - ./services/common:/app/common
@@ -31,8 +33,10 @@ services:
       - DB_PASSWORD=postgres
       - RABBITMQ_HOST=rabbitmq
     depends_on:
-      - rides-db
-      - rabbitmq
+      rides-db:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - ./services/rides:/app
       - ./services/common:/app/common
@@ -49,9 +53,12 @@ services:
       - RIDES_SERVICE_URL=http://rides-service:8000
       - RABBITMQ_HOST=rabbitmq
     depends_on:
-      - users-service
-      - rides-service
-      - rabbitmq
+      users-service:
+        condition: service_started
+      rides-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - ./services/matching:/app
       - ./services/common:/app/common
@@ -70,8 +77,10 @@ services:
       - DB_PASSWORD=postgres
       - RABBITMQ_HOST=rabbitmq
     depends_on:
-      - payments-db
-      - rabbitmq
+      payments-db:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - ./services/payments:/app
       - ./services/common:/app/common
@@ -116,6 +125,12 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - carpool-network
 

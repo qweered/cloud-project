@@ -15,9 +15,10 @@ import time
 class MessageBroker:
     """RabbitMQ message broker for microservices communication"""
     
-    def __init__(self, host: str = None, port: int = 5672):
+    def __init__(self, host: str = None, port: int = 5672, max_retries: int = 10):
         self.host = host or os.getenv('RABBITMQ_HOST', 'localhost')
         self.port = port
+        self.max_retries = max_retries
         self.connection = None
         self.channel = None
         self.consumer_thread = None
@@ -27,16 +28,24 @@ class MessageBroker:
         self._connect()
     
     def _connect(self):
-        """Establish connection to RabbitMQ"""
-        try:
-            self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.host, port=self.port)
-            )
-            self.channel = self.connection.channel()
-            logging.info(f"Connected to RabbitMQ at {self.host}:{self.port}")
-        except Exception as e:
-            logging.error(f"Failed to connect to RabbitMQ: {e}")
-            raise
+        """Establish connection to RabbitMQ with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                self.connection = pika.BlockingConnection(
+                    pika.ConnectionParameters(host=self.host, port=self.port)
+                )
+                self.channel = self.connection.channel()
+                logging.info(f"Connected to RabbitMQ at {self.host}:{self.port} on attempt {attempt + 1}")
+                return
+            except Exception as e:
+                if attempt < self.max_retries - 1:
+                    wait_time = min(2 ** attempt, 30)  # Exponential backoff, max 30 seconds
+                    logging.warning(f"Failed to connect to RabbitMQ (attempt {attempt + 1}/{self.max_retries}): {e}")
+                    logging.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logging.error(f"Failed to connect to RabbitMQ after {self.max_retries} attempts: {e}")
+                    raise
     
     def _reconnect(self):
         """Reconnect to RabbitMQ"""

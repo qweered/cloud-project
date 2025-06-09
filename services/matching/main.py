@@ -215,17 +215,23 @@ async def get_statistics():
     """Get matching service statistics."""
     success_rate = 0
     
-    total_requests = match_request_counter.value
+    # Get metric values using the correct prometheus_client API
+    total_requests = match_request_counter._value._value
+    successful_matches = successful_matches_counter._value._value
+    failed_matches = failed_matches_counter._value._value
+    active_requests = active_ride_requests_gauge._value._value
+    available_drivers = available_drivers_gauge._value._value
+    
     if total_requests > 0:
-        success_rate = (successful_matches_counter.value / total_requests) * 100
+        success_rate = (successful_matches / total_requests) * 100
     
     return {
-        "total_match_requests": total_requests,
-        "successful_matches": successful_matches_counter.value,
-        "failed_matches": failed_matches_counter.value,
+        "total_match_requests": int(total_requests),
+        "successful_matches": int(successful_matches),
+        "failed_matches": int(failed_matches),
         "success_rate_percentage": round(success_rate, 2),
-        "active_ride_requests": active_ride_requests_gauge.value,
-        "available_drivers": available_drivers_gauge.value,
+        "active_ride_requests": int(active_requests),
+        "available_drivers": int(available_drivers),
         "available_rides_count": len(available_rides)
     }
 

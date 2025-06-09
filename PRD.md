@@ -65,14 +65,14 @@
 - [x] **Comprehensive test coverage** _(needs verification of all services)_
 
 ### GraphQL (10 points)
-- [ ] **GraphQL endpoint setup** _(not implemented)_
-- [ ] **Schema definition** _(missing)_
-- [ ] **Resolvers implementation** _(missing)_
-- [ ] **Data storage integration** _(missing)_
+- [x] **GraphQL endpoint setup** _(`/graphql` endpoint in users service)_
+- [x] **Schema definition** _(comprehensive schema with User, Ride, Payment, Location types)_
+- [x] **Resolvers implementation** _(queries and mutations for all services)_
+- [x] **Data storage integration** _(cross-service data aggregation via HTTP)_
 
 ## Implementation Status Summary
 
-### ✅ Completed (75/100 points)
+### ✅ Completed (85/100 points)
 - Solution design diagrams
 - Basic API endpoints (GET, POST, PUT)
 - CI/CD pipeline with build/test/deploy stages
@@ -81,15 +81,14 @@
 - Docker containerization
 - Password hashing (partial encryption)
 - **RabbitMQ message processing** (producers, consumers, inter-service communication)
+- **GraphQL API** (unified endpoint, schema, resolvers, cross-service aggregation)
 
-### ❌ Missing (25/100 points)
+### ❌ Missing (15/100 points)
 - Data encryption for PII (5 points)
 - Logging system (5 points)
 - In-memory caching (5 points)
-- GraphQL implementation (10 points)
 
 ### 🔧 Next Priority Tasks
-1. **Add GraphQL endpoint** for flexible data querying (10 points) 
-2. **Add data encryption** for sensitive user information (5 points)
-3. **Set up logging system** (file-based or queue-based) (5 points)
-4. **Implement caching layer** for frequently accessed data (5 points)
+1. **Add data encryption** for sensitive user information (5 points)
+2. **Set up logging system** (file-based or queue-based) (5 points)
+3. **Implement caching layer** for frequently accessed data (5 points)

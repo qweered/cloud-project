@@ -13,12 +13,15 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 import uvicorn
+import strawberry
+from strawberry.fastapi import GraphQLRouter
 
 from common.base_service import BaseService
 from common.metrics import timing_metric
 from common.messaging import MessageBroker, EXCHANGES, ROUTING_KEYS, QUEUES
 from app.models import UserCreate, UserResponse, UserUpdate
 from app.auth import get_current_user, get_password_hash, verify_password, create_access_token, Token
+from app.graphql_schema import schema
 
 
 # Create the service
@@ -35,41 +38,65 @@ message_broker.bind_queue(QUEUES['USER_PAYMENT_UPDATES'], EXCHANGES['PAYMENTS'],
 # Mock user balance tracking (in real app, would be in database)
 user_balances = {}
 
-# Message handlers
-def handle_payment_messages(message):
-    """Handle incoming payment messages"""
+# Add GraphQL endpoint
+graphql_app = GraphQLRouter(schema)
+app.include_router(graphql_app, prefix="/graphql", tags=["GraphQL"])
+
+# Alternative GraphiQL interface for development/testing
+@app.get("/graphiql", tags=["GraphQL"])
+async def graphiql():
+    """GraphiQL interface for GraphQL development and testing"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>GraphiQL</title>
+        <style>
+            body { height: 100%; margin: 0; width: 100%; overflow: hidden; }
+            #graphiql { height: 100vh; }
+        </style>
+        <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+        <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+        <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
+    </head>
+    <body>
+        <div id="graphiql">Loading...</div>
+        <script src="https://unpkg.com/graphiql/graphiql.min.js" type="application/javascript"></script>
+        <script>
+            ReactDOM.render(
+                React.createElement(GraphiQL, {
+                    fetcher: GraphiQL.createFetcher({
+                        url: '/graphql',
+                    }),
+                }),
+                document.getElementById('graphiql'),
+            );
+        </script>
+    </body>
+    </html>
+    """
+
+
+def handle_payment_messages(ch, method, properties, body):
+    """Handle payment-related messages"""
     try:
-        event_type = message.get('event_type')
-        user_id = message.get('user_id')
-        amount = message.get('amount', 0)
+        import json
+        message = json.loads(body)
         
-        if event_type == 'payment_completed':
-            # Update user's spending/payment history
-            if user_id not in user_balances:
-                user_balances[user_id] = {'total_spent': 0, 'successful_payments': 0}
-            
-            user_balances[user_id]['total_spent'] += amount
-            user_balances[user_id]['successful_payments'] += 1
-            
-            logging.info(f"Payment completed for user {user_id}: ${amount}")
-            
-        elif event_type == 'payment_failed':
-            # Track failed payments for user
-            if user_id not in user_balances:
-                user_balances[user_id] = {'total_spent': 0, 'successful_payments': 0, 'failed_payments': 0}
-            
-            if 'failed_payments' not in user_balances[user_id]:
-                user_balances[user_id]['failed_payments'] = 0
+        user_id = message.get('user_id')
+        if user_id:
+            if message.get('event') == 'payment_completed':
+                # Update user's earning/spending balance
+                amount = message.get('amount', 0)
+                user_balances[user_id] = user_balances.get(user_id, 0) + amount
                 
-            user_balances[user_id]['failed_payments'] += 1
-            
-            logging.info(f"Payment failed for user {user_id}: ${amount}")
-            
-        return True  # Message processed successfully
+            print(f"Updated user {user_id} balance: {user_balances.get(user_id, 0)}")
         
     except Exception as e:
-        logging.error(f"Error processing payment message: {e}")
-        return False  # Requeue message
+        print(f"Error processing payment message: {e}")
+    
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
 
 # Setup message consumer
 message_broker.add_consumer(QUEUES['USER_PAYMENT_UPDATES'], handle_payment_messages)
@@ -92,6 +119,9 @@ auth_failure_counter = service.metrics.create_counter(
 )
 user_operations_duration = service.metrics.create_histogram(
     "user_operations_duration_seconds", "Duration of user operations in seconds"
+)
+graphql_operations_counter = service.metrics.create_counter(
+    "graphql_operations_total", "Total number of GraphQL operations"
 )
 
 # Mock user database for demonstration
@@ -168,38 +198,37 @@ async def read_user(user_id: int, current_user=Depends(get_current_user)):
 
 @app.put("/users/me", response_model=UserResponse, tags=["Users"])
 @timing_metric(user_operations_duration)
-async def update_user(user_update: UserUpdate, current_user=Depends(get_current_user)):
+async def update_user(
+    user_update: UserUpdate, 
+    current_user=Depends(get_current_user)
+):
     """Update current user details."""
-    user = users_db[current_user["email"]]
+    # Find and update user
+    for email, user in users_db.items():
+        if user["id"] == current_user["id"]:
+            update_data = user_update.model_dump(exclude_unset=True)
+            user.update(update_data)
+            return user
     
-    update_data = user_update.model_dump(exclude_unset=True)
-    
-    # Update user dictionary with new values
-    for field, value in update_data.items():
-        if field == "password":
-            user["hashed_password"] = get_password_hash(value)
-        else:
-            user[field] = value
-    
-    return user
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="User not found"
+    )
 
 
-@app.get("/users/{user_id}/payment-stats", tags=["Users"])
+@app.get("/users/payment-stats", tags=["Users"])
 @timing_metric(user_operations_duration)
-async def get_user_payment_stats(user_id: int, current_user=Depends(get_current_user)):
-    """Get user's payment statistics."""
-    # In a real app, you'd verify the user has permission to view this data
-    stats = user_balances.get(user_id, {
-        'total_spent': 0,
-        'successful_payments': 0,
-        'failed_payments': 0
-    })
+async def get_payment_stats(current_user=Depends(get_current_user)):
+    """Get payment statistics for the current user."""
+    user_id = current_user["id"]
+    balance = user_balances.get(user_id, 0)
     
     return {
-        'user_id': user_id,
-        'payment_statistics': stats
+        "user_id": user_id,
+        "balance": balance,
+        "total_transactions": 1 if balance > 0 else 0
     }
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run(app, host="0.0.0.0", port=8000) 

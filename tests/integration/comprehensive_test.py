@@ -25,7 +25,38 @@ for name, url in services.items():
     has_metrics = 'http_requests_total' in response.text if response.status_code == 200 else False
     print(f'  {name}: {"available" if has_metrics else "error"}')
 
-# Test 3: User creation and management
+# Test 3: GraphQL endpoint
+print('\n🔗 GraphQL Endpoint:')
+graphql_query = """
+query {
+    __schema {
+        types {
+            name
+        }
+    }
+}
+"""
+
+response = requests.post(f'{services["users"]}/graphql', json={'query': graphql_query})
+if response.status_code == 200:
+    data = response.json()
+    if 'errors' not in data:
+        types_count = len(data.get('data', {}).get('__schema', {}).get('types', []))
+        print(f'  ✅ GraphQL schema loaded: {types_count} types')
+    else:
+        print(f'  ❌ GraphQL errors: {data["errors"]}')
+else:
+    print(f'  ❌ GraphQL endpoint failed: {response.status_code}')
+
+# Test 4: GraphiQL interface
+print('\n🖥️  GraphiQL Interface:')
+response = requests.get(f'{services["users"]}/graphiql')
+if response.status_code == 200 and 'GraphiQL' in response.text:
+    print(f'  ✅ GraphiQL interface available')
+else:
+    print(f'  ❌ GraphiQL interface failed: {response.status_code}')
+
+# Test 5: User creation and management
 print('\n👤 User Management:')
 import time
 user_data = {
@@ -53,6 +84,49 @@ if response.status_code == 201:
         print(f'  ⚠️  Authentication might not be working properly')
 else:
     print(f'  ❌ User creation failed: {response.status_code}')
+
+# Test 6: GraphQL User Creation
+print('\n👥 GraphQL User Creation:')
+graphql_user_mutation = """
+mutation CreateUser($userInput: UserInput!) {
+    createUser(userInput: $userInput) {
+        id
+        email
+        firstName
+        lastName
+        role
+    }
+}
+"""
+
+graphql_variables = {
+    "userInput": {
+        "email": f"graphql-test-{int(time.time())}@example.com",
+        "firstName": "GraphQL",
+        "lastName": "User",
+        "phoneNumber": "+1555123456",
+        "password": "graphqlpass123",
+        "role": "passenger"
+    }
+}
+
+response = requests.post(
+    f'{services["users"]}/graphql',
+    json={
+        'query': graphql_user_mutation,
+        'variables': graphql_variables
+    }
+)
+
+if response.status_code == 200:
+    data = response.json()
+    if 'errors' not in data and data.get('data', {}).get('createUser'):
+        user_data = data['data']['createUser']
+        print(f'  ✅ GraphQL user created: ID {user_data["id"]}')
+    else:
+        print(f'  ❌ GraphQL user creation failed: {data.get("errors", "Unknown error")}')
+else:
+    print(f'  ❌ GraphQL user creation request failed: {response.status_code}')
 
 print('\n🚗 Ride Creation Test:')
 ride_data = {
@@ -104,6 +178,38 @@ if response.status_code == 201:
     print(f'  ✅ Payment created: ID {payment["id"]}')
 else:
     print(f'  ❌ Payment creation failed: {response.status_code}')
+
+# Test 7: GraphQL aggregated query
+print('\n📈 GraphQL Aggregated Query:')
+graphql_rides_query = """
+query GetRides {
+    rides {
+        id
+        status
+        originLocation {
+            latitude
+            longitude
+        }
+        destinationLocation {
+            latitude
+            longitude
+        }
+        maxPassengers
+        pricePerSeat
+    }
+}
+"""
+
+response = requests.post(f'{services["users"]}/graphql', json={'query': graphql_rides_query})
+if response.status_code == 200:
+    data = response.json()
+    if 'errors' not in data:
+        rides = data.get('data', {}).get('rides', [])
+        print(f'  ✅ GraphQL rides query successful: {len(rides)} rides returned')
+    else:
+        print(f'  ❌ GraphQL rides query failed: {data["errors"]}')
+else:
+    print(f'  ❌ GraphQL rides query failed: {response.status_code}')
 
 print('\n' + '=' * 50)
 print('✅ Comprehensive tests completed!') 
