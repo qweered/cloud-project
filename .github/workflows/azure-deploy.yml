@@ -140,9 +140,77 @@ jobs:
           echo "No tests found for ${{ matrix.service }} service"
         fi
 
+  cleanup-old-containers:
+    name: Cleanup Old Containers
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test'
+    
+    steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: |
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+          }
+
+    - name: Delete existing containers with retry
+      run: |
+        # Function to safely delete container with retry logic
+        delete_container_with_retry() {
+          local container_name=$1
+          local max_attempts=5
+          local attempt=1
+          
+          echo "Attempting to delete container: $container_name"
+          
+          # Check if container exists
+          if az container show --resource-group ${{ env.RESOURCE_GROUP }} --name "$container_name" >/dev/null 2>&1; then
+            echo "Container $container_name exists, attempting deletion..."
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Deletion attempt $attempt/$max_attempts for $container_name"
+              
+              if az container delete \
+                --resource-group ${{ env.RESOURCE_GROUP }} \
+                --name "$container_name" \
+                --yes >/dev/null 2>&1; then
+                echo "✅ Successfully deleted $container_name"
+                break
+              else
+                echo "⚠️ Deletion attempt $attempt failed for $container_name"
+                if [ $attempt -eq $max_attempts ]; then
+                  echo "❌ Failed to delete $container_name after $max_attempts attempts"
+                  echo "Container may be in transitioning state, will wait for it to clear"
+                else
+                  echo "Waiting 30 seconds before next attempt..."
+                  sleep 30
+                fi
+                attempt=$((attempt + 1))
+              fi
+            done
+          else
+            echo "Container $container_name does not exist, skipping deletion"
+          fi
+        }
+        
+        # Delete all containers with retry logic
+        containers=("rabbitmq" "users-service" "rides-service" "payments-service" "matching-service")
+        
+        for container in "${containers[@]}"; do
+          delete_container_with_retry "$container"
+        done
+        
+        # Wait for all deletions to complete
+        echo "Waiting for all container deletions to complete..."
+        sleep 60
+
   deploy:
     name: Deploy to Azure
-    needs: [setup-acr, build-and-push, test]
+    needs: [setup-acr, build-and-push, test, cleanup-old-containers]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test'
     
@@ -163,131 +231,271 @@ jobs:
 
     - name: Deploy RabbitMQ Container
       run: |
-        # Login to ACR for deployment
-        az acr login --name ${{ env.ACR_NAME }}
+        # Function to deploy container with retry logic for transitioning state
+        deploy_container_with_retry() {
+          local max_attempts=10
+          local attempt=1
+          local wait_time=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Deployment attempt $attempt/$max_attempts for RabbitMQ"
+            
+            # Login to ACR for deployment
+            az acr login --name ${{ env.ACR_NAME }}
+            
+            # Check if RabbitMQ image exists in ACR, fallback to Docker Hub
+            if az acr repository show --name ${{ env.ACR_NAME }} --repository rabbitmq >/dev/null 2>&1; then
+              echo "Using RabbitMQ from ACR"
+              RABBITMQ_IMAGE="${{ env.REGISTRY }}/rabbitmq:3-management"
+              REGISTRY_ARGS="--registry-login-server ${{ env.REGISTRY }} --registry-username ${{ env.ACR_NAME }} --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query 'passwords[0].value' -o tsv)"
+            else
+              echo "Using RabbitMQ from Docker Hub"
+              RABBITMQ_IMAGE="rabbitmq:3-management"
+              REGISTRY_ARGS=""
+            fi
+            
+            # Deploy RabbitMQ
+            if az container create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name rabbitmq \
+              --image "$RABBITMQ_IMAGE" \
+              --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
+              --ports 5672 15672 \
+              --location ${{ env.LOCATION }} \
+              --os-type Linux \
+              --cpu 1 \
+              --memory 1.5 \
+              --restart-policy Always \
+              $REGISTRY_ARGS \
+              --environment-variables \
+                RABBITMQ_DEFAULT_USER=admin \
+                RABBITMQ_DEFAULT_PASS=admin123; then
+              echo "✅ Successfully deployed RabbitMQ"
+              break
+            else
+              echo "⚠️ RabbitMQ deployment attempt $attempt failed"
+              if [ $attempt -eq $max_attempts ]; then
+                echo "❌ Failed to deploy RabbitMQ after $max_attempts attempts"
+                exit 1
+              else
+                echo "Waiting $wait_time seconds before retry..."
+                sleep $wait_time
+                # Increase wait time for subsequent attempts
+                wait_time=$((wait_time + 15))
+              fi
+              attempt=$((attempt + 1))
+            fi
+          done
+        }
         
-        # Check if RabbitMQ image exists in ACR
-        if az acr repository show --name ${{ env.ACR_NAME }} --repository rabbitmq >/dev/null 2>&1; then
-          echo "Using RabbitMQ from ACR"
-          RABBITMQ_IMAGE="${{ env.REGISTRY }}/rabbitmq:3-management"
-          REGISTRY_ARGS="--registry-login-server ${{ env.REGISTRY }} --registry-username ${{ env.ACR_NAME }} --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query 'passwords[0].value' -o tsv)"
-        else
-          echo "RabbitMQ not in ACR, using Microsoft Container Registry mirror"
-          RABBITMQ_IMAGE="mcr.microsoft.com/mirror/docker/library/rabbitmq:3-management"
-          REGISTRY_ARGS=""
-        fi
-        
-        # Deploy RabbitMQ
-        az container create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name rabbitmq \
-          --image "$RABBITMQ_IMAGE" \
-          --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
-          --ports 5672 15672 \
-          --location ${{ env.LOCATION }} \
-          --os-type Linux \
-          --cpu 1 \
-          --memory 1.5 \
-          --restart-policy Always \
-          $REGISTRY_ARGS \
-          --environment-variables \
-            RABBITMQ_DEFAULT_USER=admin \
-            RABBITMQ_DEFAULT_PASS=admin123
+        deploy_container_with_retry
 
     - name: Deploy Users Service
       run: |
-        az container create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name users-service \
-          --image ${{ env.REGISTRY }}/carpool-users:${{ github.sha }} \
-          --dns-name-label carpool-users-${{ github.run_number }} \
-          --ports 8000 \
-          --location ${{ env.LOCATION }} \
-          --os-type Linux \
-          --cpu 0.5 \
-          --memory 1 \
-          --restart-policy Always \
-          --registry-login-server ${{ env.REGISTRY }} \
-          --registry-username ${{ env.ACR_NAME }} \
-          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
-          --environment-variables \
-            DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
-            DB_NAME=users_db \
-            DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
-            DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
-            RABBITMQ_HOST=rabbitmq.containerinstances.io
+        deploy_service_with_retry() {
+          local service_name=$1
+          local image_name=$2
+          local max_attempts=10
+          local attempt=1
+          local wait_time=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Deployment attempt $attempt/$max_attempts for $service_name"
+            
+            if az container create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name "$service_name" \
+              --image "$image_name" \
+              --dns-name-label "carpool-${service_name/-service/}-${{ github.run_number }}" \
+              --ports 8000 \
+              --location ${{ env.LOCATION }} \
+              --os-type Linux \
+              --cpu 0.5 \
+              --memory 1 \
+              --restart-policy Always \
+              --registry-login-server ${{ env.REGISTRY }} \
+              --registry-username ${{ env.ACR_NAME }} \
+              --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
+              --environment-variables \
+                DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
+                DB_NAME=${service_name/-service/}_db \
+                DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
+                DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+              echo "✅ Successfully deployed $service_name"
+              break
+            else
+              echo "⚠️ $service_name deployment attempt $attempt failed"
+              if [ $attempt -eq $max_attempts ]; then
+                echo "❌ Failed to deploy $service_name after $max_attempts attempts"
+                exit 1
+              else
+                echo "Waiting $wait_time seconds before retry..."
+                sleep $wait_time
+                wait_time=$((wait_time + 15))
+              fi
+              attempt=$((attempt + 1))
+            fi
+          done
+        }
+        
+        deploy_service_with_retry "users-service" "${{ env.REGISTRY }}/carpool-users:${{ github.sha }}"
 
     - name: Deploy Rides Service
       run: |
-        az container create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name rides-service \
-          --image ${{ env.REGISTRY }}/carpool-rides:${{ github.sha }} \
-          --dns-name-label carpool-rides-${{ github.run_number }} \
-          --ports 8000 \
-          --location ${{ env.LOCATION }} \
-          --os-type Linux \
-          --cpu 0.5 \
-          --memory 1 \
-          --restart-policy Always \
-          --registry-login-server ${{ env.REGISTRY }} \
-          --registry-username ${{ env.ACR_NAME }} \
-          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
-          --environment-variables \
-            DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
-            DB_NAME=rides_db \
-            DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
-            DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
-            RABBITMQ_HOST=rabbitmq.containerinstances.io
+        deploy_service_with_retry() {
+          local service_name=$1
+          local image_name=$2
+          local max_attempts=10
+          local attempt=1
+          local wait_time=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Deployment attempt $attempt/$max_attempts for $service_name"
+            
+            if az container create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name "$service_name" \
+              --image "$image_name" \
+              --dns-name-label "carpool-${service_name/-service/}-${{ github.run_number }}" \
+              --ports 8000 \
+              --location ${{ env.LOCATION }} \
+              --os-type Linux \
+              --cpu 0.5 \
+              --memory 1 \
+              --restart-policy Always \
+              --registry-login-server ${{ env.REGISTRY }} \
+              --registry-username ${{ env.ACR_NAME }} \
+              --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
+              --environment-variables \
+                DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
+                DB_NAME=${service_name/-service/}_db \
+                DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
+                DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+              echo "✅ Successfully deployed $service_name"
+              break
+            else
+              echo "⚠️ $service_name deployment attempt $attempt failed"
+              if [ $attempt -eq $max_attempts ]; then
+                echo "❌ Failed to deploy $service_name after $max_attempts attempts"
+                exit 1
+              else
+                echo "Waiting $wait_time seconds before retry..."
+                sleep $wait_time
+                wait_time=$((wait_time + 15))
+              fi
+              attempt=$((attempt + 1))
+            fi
+          done
+        }
+        
+        deploy_service_with_retry "rides-service" "${{ env.REGISTRY }}/carpool-rides:${{ github.sha }}"
 
     - name: Deploy Payments Service
       run: |
-        az container create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name payments-service \
-          --image ${{ env.REGISTRY }}/carpool-payments:${{ github.sha }} \
-          --dns-name-label carpool-payments-${{ github.run_number }} \
-          --ports 8000 \
-          --location ${{ env.LOCATION }} \
-          --os-type Linux \
-          --cpu 0.5 \
-          --memory 1 \
-          --restart-policy Always \
-          --registry-login-server ${{ env.REGISTRY }} \
-          --registry-username ${{ env.ACR_NAME }} \
-          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
-          --environment-variables \
-            DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
-            DB_NAME=payments_db \
-            DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
-            DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
-            RABBITMQ_HOST=rabbitmq.containerinstances.io
+        deploy_service_with_retry() {
+          local service_name=$1
+          local image_name=$2
+          local max_attempts=10
+          local attempt=1
+          local wait_time=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Deployment attempt $attempt/$max_attempts for $service_name"
+            
+            if az container create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name "$service_name" \
+              --image "$image_name" \
+              --dns-name-label "carpool-${service_name/-service/}-${{ github.run_number }}" \
+              --ports 8000 \
+              --location ${{ env.LOCATION }} \
+              --os-type Linux \
+              --cpu 0.5 \
+              --memory 1 \
+              --restart-policy Always \
+              --registry-login-server ${{ env.REGISTRY }} \
+              --registry-username ${{ env.ACR_NAME }} \
+              --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
+              --environment-variables \
+                DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
+                DB_NAME=${service_name/-service/}_db \
+                DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
+                DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+              echo "✅ Successfully deployed $service_name"
+              break
+            else
+              echo "⚠️ $service_name deployment attempt $attempt failed"
+              if [ $attempt -eq $max_attempts ]; then
+                echo "❌ Failed to deploy $service_name after $max_attempts attempts"
+                exit 1
+              else
+                echo "Waiting $wait_time seconds before retry..."
+                sleep $wait_time
+                wait_time=$((wait_time + 15))
+              fi
+              attempt=$((attempt + 1))
+            fi
+          done
+        }
+        
+        deploy_service_with_retry "payments-service" "${{ env.REGISTRY }}/carpool-payments:${{ github.sha }}"
 
-    - name: Wait for services to be ready
+    - name: Wait for core services to be ready
       run: |
-        echo "Waiting for services to start..."
+        echo "Waiting for core services to start..."
         sleep 60
 
     - name: Deploy Matching Service
       run: |
-        az container create \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name matching-service \
-          --image ${{ env.REGISTRY }}/carpool-matching:${{ github.sha }} \
-          --dns-name-label carpool-matching-${{ github.run_number }} \
-          --ports 8000 \
-          --location ${{ env.LOCATION }} \
-          --os-type Linux \
-          --cpu 0.5 \
-          --memory 1 \
-          --restart-policy Always \
-          --registry-login-server ${{ env.REGISTRY }} \
-          --registry-username ${{ env.ACR_NAME }} \
-          --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
-          --environment-variables \
-            USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
-            RIDES_SERVICE_URL=http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
-            RABBITMQ_HOST=rabbitmq.containerinstances.io
+        deploy_service_with_retry() {
+          local service_name=$1
+          local image_name=$2
+          local max_attempts=10
+          local attempt=1
+          local wait_time=30
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "Deployment attempt $attempt/$max_attempts for $service_name"
+            
+            if az container create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name "$service_name" \
+              --image "$image_name" \
+              --dns-name-label "carpool-${service_name/-service/}-${{ github.run_number }}" \
+              --ports 8000 \
+              --location ${{ env.LOCATION }} \
+              --os-type Linux \
+              --cpu 0.5 \
+              --memory 1 \
+              --restart-policy Always \
+              --registry-login-server ${{ env.REGISTRY }} \
+              --registry-username ${{ env.ACR_NAME }} \
+              --registry-password $(az acr credential show --name ${{ env.ACR_NAME }} --query "passwords[0].value" -o tsv) \
+              --environment-variables \
+                USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
+                RIDES_SERVICE_URL=http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
+                RABBITMQ_HOST=carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io; then
+              echo "✅ Successfully deployed $service_name"
+              break
+            else
+              echo "⚠️ $service_name deployment attempt $attempt failed"
+              if [ $attempt -eq $max_attempts ]; then
+                echo "❌ Failed to deploy $service_name after $max_attempts attempts"
+                exit 1
+              else
+                echo "Waiting $wait_time seconds before retry..."
+                sleep $wait_time
+                wait_time=$((wait_time + 15))
+              fi
+              attempt=$((attempt + 1))
+            fi
+          done
+        }
+        
+        deploy_service_with_retry "matching-service" "${{ env.REGISTRY }}/carpool-matching:${{ github.sha }}"
 
     - name: Display service URLs
       run: |
@@ -317,10 +525,23 @@ jobs:
           url="http://carpool-${service}-${{ github.run_number }}.eastus.azurecontainer.io:8000/health"
           echo "Checking $service service health..."
           
-          # Try health check with timeout
-          if timeout 30 curl -f "$url" >/dev/null 2>&1; then
-            echo "✅ $service service is healthy"
-          else
-            echo "⚠️ $service service health check failed or timed out"
-          fi
+          # Try health check with timeout and retry
+          max_health_attempts=5
+          health_attempt=1
+          
+          while [ $health_attempt -le $max_health_attempts ]; do
+            if timeout 30 curl -f "$url" >/dev/null 2>&1; then
+              echo "✅ $service service is healthy"
+              break
+            else
+              echo "⚠️ $service service health check attempt $health_attempt failed"
+              if [ $health_attempt -eq $max_health_attempts ]; then
+                echo "❌ $service service failed health check after $max_health_attempts attempts"
+              else
+                echo "Retrying health check in 15 seconds..."
+                sleep 15
+              fi
+              health_attempt=$((health_attempt + 1))
+            fi
+          done
         done 
