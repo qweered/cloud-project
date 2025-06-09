@@ -20,10 +20,10 @@ skinparam queue {
 }
 
 ' Components
-component "Users Service" as UsersService
-component "Rides Service" as RidesService
-component "Matching Service" as MatchingService
-component "Payments Service" as PaymentsService
+component "Users Service\n✅ PII Encryption\n✅ GraphQL\n✅ Auth/JWT" as UsersService
+component "Rides Service\n✅ Location APIs\n✅ CRUD Operations" as RidesService
+component "Matching Service\n✅ Algorithm\n✅ Statistics" as MatchingService
+component "Payments Service\n✅ Payment Processing\n✅ Transactions" as PaymentsService
 
 ' Databases
 database "Users DB" as UsersDB
@@ -31,11 +31,11 @@ database "Rides DB" as RidesDB
 database "Payments DB" as PaymentsDB
 
 ' Message Queues
-queue "User Events" as UserEvents
-queue "Ride Events" as RideEvents
-queue "Match Events" as MatchEvents
-queue "Payment Events" as PaymentEvents
-queue "Logging Queue" as LogQueue
+queue "User Events\n✅ RabbitMQ" as UserEvents
+queue "Ride Events\n✅ RabbitMQ" as RideEvents
+queue "Match Events\n✅ RabbitMQ" as MatchEvents
+queue "Payment Events\n✅ RabbitMQ" as PaymentEvents
+queue "Logging Queue\n⚠️ Pending" as LogQueue
 
 ' Connections between services and databases
 UsersService --> UsersDB : CRUD operations
@@ -70,13 +70,19 @@ MatchingService --> LogQueue : logs
 PaymentsService --> LogQueue : logs
 
 note right of UsersService
-  Manages user profiles, 
-  authentication & authorization
+  ✅ IMPLEMENTED:
+  • User profiles with PII encryption
+  • JWT authentication & authorization
+  • GraphQL unified API endpoint
+  • Password hashing with bcrypt
 end note
 
 note right of MatchingService
-  Core algorithm for matching
-  passengers with drivers
+  ✅ IMPLEMENTED:
+  • Core matching algorithm
+  • Real-time statistics
+  • RabbitMQ message processing
+  • Health and metrics endpoints
 end note
 
 note right of UserEvents

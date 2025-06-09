@@ -1,4 +1,3 @@
-#!/bin/bash
 
 # Script to render PlantUML diagrams to PNG
 

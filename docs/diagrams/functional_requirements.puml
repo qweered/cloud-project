@@ -8,17 +8,17 @@ actor "Driver" as driver
 actor "Admin" as admin
 
 rectangle "Carpooling System" {
-  usecase "Register/Login" as UC1
-  usecase "Manage Profile" as UC2
-  usecase "Create Ride Request" as UC3
-  usecase "Offer Ride" as UC4
-  usecase "Match Rides" as UC5
-  usecase "Accept/Reject Ride" as UC6
-  usecase "Process Payment" as UC7
-  usecase "Rate Experience" as UC8
-  usecase "View Ride History" as UC9
-  usecase "System Monitoring" as UC10
-  usecase "Manage Users" as UC11
+  usecase "Register/Login\n✅ IMPLEMENTED" as UC1
+  usecase "Manage Profile\n✅ IMPLEMENTED" as UC2
+  usecase "Create Ride Request\n✅ IMPLEMENTED" as UC3
+  usecase "Offer Ride\n✅ IMPLEMENTED" as UC4
+  usecase "Match Rides\n✅ IMPLEMENTED" as UC5
+  usecase "Accept/Reject Ride\n✅ IMPLEMENTED" as UC6
+  usecase "Process Payment\n✅ IMPLEMENTED" as UC7
+  usecase "Rate Experience\n⚠️ PARTIAL" as UC8
+  usecase "View Ride History\n✅ IMPLEMENTED" as UC9
+  usecase "System Monitoring\n✅ IMPLEMENTED" as UC10
+  usecase "Manage Users\n✅ IMPLEMENTED" as UC11
 }
 
 ' User connections
@@ -48,16 +48,21 @@ UC6 ..> UC7 : includes
 UC7 ..> UC8 : triggers
 
 note right of UC1
-  Users can register and log in
-  using email or social accounts
+  ✅ IMPLEMENTED:
+  • User registration with PII encryption
+  • JWT-based authentication
+  • Email/password login
+  • Profile management with encrypted data
 end note
 
 note right of UC5
+  ✅ IMPLEMENTED:
   Matching algorithm considers:
-  - Location proximity
-  - Time constraints
-  - User ratings
-  - Vehicle capacity
+  • Location proximity
+  • Time constraints
+  • Vehicle capacity
+  • Real-time statistics
+  • RabbitMQ message processing
 end note
 
 @enduml 

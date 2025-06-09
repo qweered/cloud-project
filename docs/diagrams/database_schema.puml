@@ -11,16 +11,17 @@ title Carpooling and Shared Rides Management - Database Schema
 package "Users Database" {
   class users {
     + id: UUID <<PK>>
-    + username: VARCHAR(50)
-    + email: VARCHAR(100) <<encrypted>>
-    + password_hash: VARCHAR(255)
-    + phone_number: VARCHAR(20) <<encrypted>>
+    + email: VARCHAR(255) <<encrypted with Fernet>>
+    + first_name: VARCHAR(100) <<encrypted with Fernet>>
+    + last_name: VARCHAR(100) <<encrypted with Fernet>>
+    + phone_number: VARCHAR(20) <<encrypted with Fernet>>
+    + hashed_password: VARCHAR(255) <<bcrypt hashed>>
     + created_at: TIMESTAMP
     + updated_at: TIMESTAMP
     # role: ENUM ['driver', 'passenger', 'admin']
     .. Driver-specific fields ..
     vehicle_model: VARCHAR(100)
-    license_plate: VARCHAR(20) <<encrypted>>
+    license_plate: VARCHAR(20)
     max_passengers: INTEGER
   }
 
@@ -117,8 +118,11 @@ payments }o--|| rides
 payments }o--|| users
 
 note top of users
-  PII data (email, phone, license_plate) 
-  is encrypted at rest
+  ✅ IMPLEMENTED: PII data encryption
+  • email, first_name, last_name, phone_number 
+    encrypted with Fernet symmetric encryption
+  • passwords hashed with bcrypt
+  • automatic encrypt/decrypt in API layer
 end note
 
 note bottom of payments

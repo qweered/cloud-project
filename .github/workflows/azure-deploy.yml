@@ -526,7 +526,7 @@ jobs:
           echo "Checking $service service health..."
           
           # Try health check with timeout and retry
-          max_health_attempts=5
+          max_health_attempts=1
           health_attempt=1
           
           while [ $health_attempt -le $max_health_attempts ]; do
