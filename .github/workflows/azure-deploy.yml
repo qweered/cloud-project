@@ -123,6 +123,7 @@ jobs:
           --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
           --ports 5672 15672 \
           --location ${{ env.LOCATION }} \
+          --os-type Linux \
           --restart-policy Always \
           --environment-variables \
             RABBITMQ_DEFAULT_USER=admin \
@@ -137,6 +138,7 @@ jobs:
           --dns-name-label carpool-users-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
+          --os-type Linux \
           --restart-policy Always \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
@@ -154,6 +156,7 @@ jobs:
           --dns-name-label carpool-rides-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
+          --os-type Linux \
           --restart-policy Always \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
@@ -171,6 +174,7 @@ jobs:
           --dns-name-label carpool-payments-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
+          --os-type Linux \
           --restart-policy Always \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
@@ -193,6 +197,7 @@ jobs:
           --dns-name-label carpool-matching-${{ github.run_number }} \
           --ports 8000 \
           --location ${{ env.LOCATION }} \
+          --os-type Linux \
           --restart-policy Always \
           --environment-variables \
             USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
