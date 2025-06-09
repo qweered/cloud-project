@@ -89,7 +89,7 @@ jobs:
     name: Deploy to Azure
     needs: [build-and-push, test]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test'
     
     steps:
     - name: Checkout repository
