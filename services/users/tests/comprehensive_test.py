@@ -56,9 +56,9 @@ else:
 print('\n🚗 Ride Creation Test:')
 ride_data = {
     'driver_id': 1,
-    'pickup_location': {'latitude': 40.7128, 'longitude': -74.0060},
-    'dropoff_location': {'latitude': 40.7580, 'longitude': -73.9855},
-    'departure_time': '2023-12-01T15:00:00Z',
+    'origin_location': {'latitude': 40.7128, 'longitude': -74.0060},
+    'destination_location': {'latitude': 40.7580, 'longitude': -73.9855},
+    'start_time': '2023-12-01T15:00:00Z',
     'max_passengers': 3,
     'price_per_seat': 25.0
 }

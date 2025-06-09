@@ -6,6 +6,7 @@ import sys
 import os
 import time
 import random
+import logging
 from typing import List, Dict, Optional
 
 # Add parent directory to path for imports
@@ -18,6 +19,7 @@ import requests
 
 from common.base_service import BaseService
 from common.metrics import timing_metric
+from common.messaging import MessageBroker, EXCHANGES, ROUTING_KEYS, QUEUES
 
 
 class Location(BaseModel):
@@ -49,6 +51,75 @@ class MatchResponse(BaseModel):
 # Create the service
 service = BaseService("Matching Service", "Matching passengers with drivers for carpooling")
 app = service.app
+
+# Mock database for available rides
+available_rides = {}
+
+# Initialize message broker
+message_broker = MessageBroker()
+message_broker.declare_exchange(EXCHANGES['RIDES'])
+message_broker.declare_queue(QUEUES['MATCHING_RIDES'])
+message_broker.bind_queue(QUEUES['MATCHING_RIDES'], EXCHANGES['RIDES'], ROUTING_KEYS['RIDE_CREATED'])
+message_broker.bind_queue(QUEUES['MATCHING_RIDES'], EXCHANGES['RIDES'], ROUTING_KEYS['RIDE_UPDATED'])
+message_broker.bind_queue(QUEUES['MATCHING_RIDES'], EXCHANGES['RIDES'], ROUTING_KEYS['PASSENGER_JOINED'])
+
+# Message handlers
+def handle_ride_messages(message: Dict):
+    """Handle incoming ride messages"""
+    try:
+        event_type = message.get('event_type')
+        
+        if event_type == 'ride_created':
+            # Add new ride to available rides
+            ride_id = message['ride_id']
+            available_rides[ride_id] = {
+                'ride_id': ride_id,
+                'driver_id': message['driver_id'],
+                'pickup_location': message['pickup_location'],
+                'dropoff_location': message['dropoff_location'],
+                'departure_time': message['departure_time'],
+                'max_passengers': message['max_passengers'],
+                'current_passengers': message['current_passengers'],
+                'status': 'scheduled'
+            }
+            available_drivers_gauge.inc()
+            logging.info(f"Added new ride {ride_id} to matching service")
+            
+        elif event_type == 'ride_updated':
+            # Update ride status
+            ride_id = message['ride_id']
+            if ride_id in available_rides:
+                available_rides[ride_id]['status'] = message['status']
+                available_rides[ride_id]['current_passengers'] = message['current_passengers']
+                
+                # Remove from available rides if completed or cancelled
+                if message['status'] in ['completed', 'cancelled']:
+                    del available_rides[ride_id]
+                    available_drivers_gauge.dec()
+                    
+                logging.info(f"Updated ride {ride_id} status to {message['status']}")
+                
+        elif event_type == 'passenger_joined':
+            # Update passenger count
+            ride_id = message['ride_id']
+            if ride_id in available_rides:
+                available_rides[ride_id]['current_passengers'] += 1
+                logging.info(f"Passenger {message['passenger_id']} joined ride {ride_id}")
+                
+        return True  # Message processed successfully
+        
+    except Exception as e:
+        logging.error(f"Error processing ride message: {e}")
+        return False  # Requeue message
+
+# Setup message consumer
+message_broker.add_consumer(QUEUES['MATCHING_RIDES'], handle_ride_messages)
+message_broker.start_consuming()
+
+# Setup cleanup for message broker
+@app.on_event("shutdown")
+async def shutdown_event():
+    message_broker.close()
 
 # Add custom metrics
 match_request_counter = service.metrics.create_counter(
@@ -91,36 +162,52 @@ async def match_ride(request: RideRequest):
         # Simulate matching algorithm execution time
         time.sleep(random.uniform(0.2, 1.0))
         
-        # Simulate a successful match (in a real implementation, this would query the rides service)
-        match_success = random.random() > 0.2  # 80% success rate
+        # Find available rides with capacity
+        suitable_rides = []
+        for ride_id, ride in available_rides.items():
+            if (ride['status'] == 'scheduled' and 
+                ride['current_passengers'] < ride['max_passengers']):
+                suitable_rides.append(ride)
         
-        if not match_success:
+        if not suitable_rides:
             failed_matches_counter.inc()
             active_ride_requests_gauge.dec()
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No suitable drivers found for your request. Please try again later."
+                detail=f"No suitable drivers found for your request. Available rides: {len(available_rides)}"
             )
+        
+        # Select best ride (for now, just pick the first one)
+        # In a real implementation, this would use distance, timing, preferences, etc.
+        selected_ride = suitable_rides[0]
         
         # Update metrics for successful match
         successful_matches_counter.inc()
         active_ride_requests_gauge.dec()
-        available_drivers_gauge.dec()
         
-        # Return simulated match details
+        # Return match details based on actual ride
         return {
-            "ride_id": random.randint(1000, 9999),
-            "driver_id": random.randint(1, 100),
+            "ride_id": selected_ride['ride_id'],
+            "driver_id": selected_ride['driver_id'],
             "passenger_id": request.passenger_id,
-            "pickup_time": "2023-09-30T14:30:00Z",
-            "estimated_arrival_time": "2023-09-30T15:15:00Z",
-            "price": round(random.uniform(10.0, 50.0), 2)
+            "pickup_time": selected_ride['departure_time'],
+            "estimated_arrival_time": "2023-09-30T15:15:00Z",  # Would be calculated
+            "price": round(random.uniform(10.0, 50.0), 2)  # Would be calculated based on distance
         }
     except Exception as e:
         # Ensure metrics are updated even if an error occurs
         active_ride_requests_gauge.dec()
         failed_matches_counter.inc()
         raise e
+
+
+@app.get("/available-rides", tags=["Matching"])
+async def get_available_rides():
+    """Get all rides available for matching."""
+    return {
+        "available_rides": list(available_rides.values()),
+        "count": len(available_rides)
+    }
 
 
 @app.get("/statistics", tags=["Statistics"])
@@ -138,7 +225,8 @@ async def get_statistics():
         "failed_matches": failed_matches_counter.value,
         "success_rate_percentage": round(success_rate, 2),
         "active_ride_requests": active_ride_requests_gauge.value,
-        "available_drivers": available_drivers_gauge.value
+        "available_drivers": available_drivers_gauge.value,
+        "available_rides_count": len(available_rides)
     }
 
 

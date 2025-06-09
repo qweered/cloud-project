@@ -5,6 +5,7 @@ Rides Service - Main entry point
 import sys
 import os
 import time
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -16,6 +17,7 @@ import uvicorn
 
 from common.base_service import BaseService
 from common.metrics import timing_metric
+from common.messaging import MessageBroker, RideMessage, EXCHANGES, ROUTING_KEYS
 from app.models import (
     RideCreate, RideResponse, RideUpdate,
     PassengerRideCreate, PassengerRideResponse, PassengerRideUpdate,
@@ -26,6 +28,15 @@ from app.models import (
 # Create the service
 service = BaseService("Rides Service", "Ride management for carpooling application")
 app = service.app
+
+# Initialize message broker
+message_broker = MessageBroker()
+message_broker.declare_exchange(EXCHANGES['RIDES'])
+
+# Setup cleanup for message broker
+@app.on_event("shutdown")
+async def shutdown_event():
+    message_broker.close()
 
 # Add custom metrics
 ride_creation_counter = service.metrics.create_counter(
@@ -72,6 +83,24 @@ async def create_ride(ride: RideCreate):
     # Increment metrics
     ride_creation_counter.inc()
     active_rides_gauge.inc()
+    
+    # Publish ride creation message
+    try:
+        ride_message = RideMessage.ride_created(
+            ride_id=ride_id,
+            driver_id=ride.driver_id,
+            pickup_location={'lat': ride.origin_location.latitude, 'lng': ride.origin_location.longitude},
+            dropoff_location={'lat': ride.destination_location.latitude, 'lng': ride.destination_location.longitude},
+            departure_time=ride.start_time.isoformat(),
+            max_passengers=ride.max_passengers
+        )
+        message_broker.publish_message(
+            EXCHANGES['RIDES'],
+            ROUTING_KEYS['RIDE_CREATED'],
+            ride_message
+        )
+    except Exception as e:
+        logging.error(f"Failed to publish ride creation message: {e}")
     
     return ride_dict
 
@@ -133,6 +162,21 @@ async def update_ride(ride_id: int, ride_update: RideUpdate):
         elif update_data["status"] == RideStatus.CANCELLED:
             ride_cancellation_counter.inc()
             active_rides_gauge.dec()
+        
+        # Publish ride update message
+        try:
+            ride_message = RideMessage.ride_updated(
+                ride_id=ride_id,
+                status=update_data["status"],
+                current_passengers=ride["current_passengers"]
+            )
+            message_broker.publish_message(
+                EXCHANGES['RIDES'],
+                ROUTING_KEYS['RIDE_UPDATED'],
+                ride_message
+            )
+        except Exception as e:
+            logging.error(f"Failed to publish ride update message: {e}")
     
     return ride
 
@@ -213,6 +257,21 @@ async def update_passenger_ride_status(passenger_ride_id: int, update: Passenger
     if "status" in update_data:
         if update_data["status"] == PassengerStatus.ACCEPTED:
             ride["current_passengers"] += 1
+            
+            # Publish passenger joined message
+            try:
+                passenger_message = RideMessage.passenger_joined(
+                    ride_id=ride_id,
+                    passenger_id=passenger_ride["passenger_id"]
+                )
+                message_broker.publish_message(
+                    EXCHANGES['RIDES'],
+                    ROUTING_KEYS['PASSENGER_JOINED'],
+                    passenger_message
+                )
+            except Exception as e:
+                logging.error(f"Failed to publish passenger joined message: {e}")
+                
         elif passenger_ride["status"] == PassengerStatus.ACCEPTED and update_data["status"] in [PassengerStatus.CANCELLED, PassengerStatus.REJECTED]:
             ride["current_passengers"] -= 1
     

@@ -6,6 +6,7 @@ import sys
 import os
 import time
 import uuid
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -17,6 +18,7 @@ import uvicorn
 
 from common.base_service import BaseService
 from common.metrics import timing_metric
+from common.messaging import MessageBroker, PaymentMessage, EXCHANGES, ROUTING_KEYS
 from app.models import (
     PaymentCreate, PaymentResponse, PaymentUpdate,
     PaymentMethodCreate, PaymentMethodResponse, PaymentMethodUpdate,
@@ -27,6 +29,15 @@ from app.models import (
 # Create the service
 service = BaseService("Payments Service", "Payment processing for carpooling application")
 app = service.app
+
+# Initialize message broker
+message_broker = MessageBroker()
+message_broker.declare_exchange(EXCHANGES['PAYMENTS'])
+
+# Setup cleanup for message broker
+@app.on_event("shutdown")
+async def shutdown_event():
+    message_broker.close()
 
 # Add custom metrics
 payment_creation_counter = service.metrics.create_counter(
@@ -120,10 +131,43 @@ async def update_payment(payment_id: int, payment_update: PaymentUpdate):
             
         if update_data["status"] == PaymentStatus.COMPLETED:
             payment_completion_counter.inc()
+            
+            # Publish payment completed message
+            try:
+                payment_message = PaymentMessage.payment_completed(
+                    payment_id=payment_id,
+                    user_id=payment["passenger_id"],  # Assuming passenger is the one paying
+                    amount=payment["amount"],
+                    ride_id=payment["ride_id"]
+                )
+                message_broker.publish_message(
+                    EXCHANGES['PAYMENTS'],
+                    ROUTING_KEYS['PAYMENT_COMPLETED'],
+                    payment_message
+                )
+            except Exception as e:
+                logging.error(f"Failed to publish payment completed message: {e}")
+                
         elif update_data["status"] == PaymentStatus.REFUNDED:
             payment_refund_counter.inc()
         elif update_data["status"] == PaymentStatus.FAILED:
             payment_failure_counter.inc()
+            
+            # Publish payment failed message
+            try:
+                payment_message = PaymentMessage.payment_failed(
+                    payment_id=payment_id,
+                    user_id=payment["passenger_id"],
+                    amount=payment["amount"],
+                    reason="Payment failed during processing"
+                )
+                message_broker.publish_message(
+                    EXCHANGES['PAYMENTS'],
+                    ROUTING_KEYS['PAYMENT_FAILED'],
+                    payment_message
+                )
+            except Exception as e:
+                logging.error(f"Failed to publish payment failed message: {e}")
     
     return payment
 
