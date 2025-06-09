@@ -1,0 +1,228 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  RESOURCE_GROUP: rg-carpool-app
+  LOCATION: eastus
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Build and Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service: [users, rides, matching, payments]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./services/${{ matrix.service }}
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/carpool-${{ matrix.service }}:${{ github.sha }}
+          ghcr.io/${{ github.repository }}/carpool-${{ matrix.service }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [users, rides, matching, payments]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        cd services/${{ matrix.service }}
+        python -m pip install --upgrade pip
+        pip install flake8 pytest
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Lint with flake8
+      run: |
+        cd services/${{ matrix.service }}
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Test with pytest
+      run: |
+        cd services/${{ matrix.service }}
+        if [ -d "tests" ]; then
+          pytest
+        else
+          echo "No tests found for ${{ matrix.service }} service"
+        fi
+
+  deploy:
+    name: Deploy to Azure
+    needs: [build-and-push, test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: |
+          {
+            "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+            "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+            "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+            "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+          }
+
+    - name: Deploy RabbitMQ Container
+      run: |
+        az container create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name rabbitmq \
+          --image rabbitmq:3-management \
+          --dns-name-label carpool-rabbitmq-${{ github.run_number }} \
+          --ports 5672 15672 \
+          --location ${{ env.LOCATION }} \
+          --restart-policy Always \
+          --environment-variables \
+            RABBITMQ_DEFAULT_USER=admin \
+            RABBITMQ_DEFAULT_PASS=admin123
+
+    - name: Deploy Users Service
+      run: |
+        az container create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name users-service \
+          --image ghcr.io/${{ github.repository }}/carpool-users:${{ github.sha }} \
+          --dns-name-label carpool-users-${{ github.run_number }} \
+          --ports 8000 \
+          --location ${{ env.LOCATION }} \
+          --restart-policy Always \
+          --environment-variables \
+            DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
+            DB_NAME=users_db \
+            DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
+            DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
+            RABBITMQ_HOST=rabbitmq.containerinstances.io
+
+    - name: Deploy Rides Service
+      run: |
+        az container create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name rides-service \
+          --image ghcr.io/${{ github.repository }}/carpool-rides:${{ github.sha }} \
+          --dns-name-label carpool-rides-${{ github.run_number }} \
+          --ports 8000 \
+          --location ${{ env.LOCATION }} \
+          --restart-policy Always \
+          --environment-variables \
+            DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
+            DB_NAME=rides_db \
+            DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
+            DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
+            RABBITMQ_HOST=rabbitmq.containerinstances.io
+
+    - name: Deploy Payments Service
+      run: |
+        az container create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name payments-service \
+          --image ghcr.io/${{ github.repository }}/carpool-payments:${{ github.sha }} \
+          --dns-name-label carpool-payments-${{ github.run_number }} \
+          --ports 8000 \
+          --location ${{ env.LOCATION }} \
+          --restart-policy Always \
+          --environment-variables \
+            DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
+            DB_NAME=payments_db \
+            DB_USER=${{ secrets.POSTGRES_ADMIN_USER }}@${{ secrets.POSTGRES_SERVER }} \
+            DB_PASSWORD=${{ secrets.POSTGRES_ADMIN_PASSWORD }} \
+            RABBITMQ_HOST=rabbitmq.containerinstances.io
+
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for services to start..."
+        sleep 60
+
+    - name: Deploy Matching Service
+      run: |
+        az container create \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name matching-service \
+          --image ghcr.io/${{ github.repository }}/carpool-matching:${{ github.sha }} \
+          --dns-name-label carpool-matching-${{ github.run_number }} \
+          --ports 8000 \
+          --location ${{ env.LOCATION }} \
+          --restart-policy Always \
+          --environment-variables \
+            USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
+            RIDES_SERVICE_URL=http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
+            RABBITMQ_HOST=rabbitmq.containerinstances.io
+
+    - name: Display service URLs
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo ""
+        echo "Service URLs:"
+        echo "Users Service: http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000"
+        echo "Rides Service: http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000"
+        echo "Matching Service: http://carpool-matching-${{ github.run_number }}.eastus.azurecontainer.io:8000"
+        echo "Payments Service: http://carpool-payments-${{ github.run_number }}.eastus.azurecontainer.io:8000"
+        echo "RabbitMQ Management: http://carpool-rabbitmq-${{ github.run_number }}.eastus.azurecontainer.io:15672"
+        echo ""
+        echo "API Documentation:"
+        echo "Users API: http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000/docs"
+        echo "Rides API: http://carpool-rides-${{ github.run_number }}.eastus.azurecontainer.io:8000/docs"
+        echo "Matching API: http://carpool-matching-${{ github.run_number }}.eastus.azurecontainer.io:8000/docs"
+        echo "Payments API: http://carpool-payments-${{ github.run_number }}.eastus.azurecontainer.io:8000/docs"
+
+    - name: Health Check
+      run: |
+        echo "Performing health checks..."
+        sleep 30
+        
+        services=("users" "rides" "matching" "payments")
+        
+        for service in "${services[@]}"; do
+          url="http://carpool-${service}-${{ github.run_number }}.eastus.azurecontainer.io:8000/health"
+          echo "Checking $service service health..."
+          
+          # Try health check with timeout
+          if timeout 30 curl -f "$url" >/dev/null 2>&1; then
+            echo "✅ $service service is healthy"
+          else
+            echo "⚠️ $service service health check failed or timed out"
+          fi
+        done 

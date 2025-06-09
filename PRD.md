@@ -56,7 +56,6 @@
 
 ### Caching (5 points)
 - [ ] **In-memory cache** _(not implemented)_
-- [ ] **Cache counts/metrics** _(not implemented)_
 
 ### Tests (5 points)
 - [x] **Test framework setup** _(pytest configured)_
