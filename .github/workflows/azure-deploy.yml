@@ -116,6 +116,8 @@ jobs:
           --ports 5672 15672 \
           --location ${{ env.LOCATION }} \
           --os-type Linux \
+          --cpu 1 \
+          --memory 1.5 \
           --restart-policy Always \
           --environment-variables \
             RABBITMQ_DEFAULT_USER=admin \
@@ -131,6 +133,8 @@ jobs:
           --ports 8000 \
           --location ${{ env.LOCATION }} \
           --os-type Linux \
+          --cpu 0.5 \
+          --memory 1 \
           --restart-policy Always \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
@@ -149,6 +153,8 @@ jobs:
           --ports 8000 \
           --location ${{ env.LOCATION }} \
           --os-type Linux \
+          --cpu 0.5 \
+          --memory 1 \
           --restart-policy Always \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
@@ -167,6 +173,8 @@ jobs:
           --ports 8000 \
           --location ${{ env.LOCATION }} \
           --os-type Linux \
+          --cpu 0.5 \
+          --memory 1 \
           --restart-policy Always \
           --environment-variables \
             DB_HOST=${{ secrets.POSTGRES_SERVER }}.postgres.database.azure.com \
@@ -190,6 +198,8 @@ jobs:
           --ports 8000 \
           --location ${{ env.LOCATION }} \
           --os-type Linux \
+          --cpu 0.5 \
+          --memory 1 \
           --restart-policy Always \
           --environment-variables \
             USERS_SERVICE_URL=http://carpool-users-${{ github.run_number }}.eastus.azurecontainer.io:8000 \
